@@ -106,9 +106,33 @@ group_charge(long cost)
     return 0; // Free operations also work before a group is configured.
 
   struct group *g = &groups[p->gid];
+  // Match ksetbudget's tickslock -> group lock order. The group lock also
+  // serializes refill with all deductions from this shared balance.
+  acquire(&tickslock);
+  uint now = ticks;
   acquire(&g->lock);
-  if (!g->configured || g->mode != BUDGET_FAIL ||
-      g->remaining > g->max || (uint64)cost > g->remaining) {
+  release(&tickslock);
+  if (!g->configured || g->mode != BUDGET_FAIL || g->remaining > g->max) {
+    release(&g->lock);
+    return -1;
+  }
+
+  // Unsigned tick subtraction also handles a single 32-bit wrap. Advance by
+  // whole periods only so a partial period remains for the next charge.
+  uint periods = (now - g->last_refill) / 100;
+  if (periods > 0) {
+    g->last_refill += periods * 100;
+    if (g->refill_per_100_ticks > 0 && g->remaining < g->max) {
+      uint64 room = g->max - g->remaining;
+      uint64 rate = g->refill_per_100_ticks;
+      if ((uint64)periods > room / rate)
+        g->remaining = g->max;
+      else
+        g->remaining += (uint64)periods * rate;
+    }
+  }
+
+  if ((uint64)cost > g->remaining) {
     release(&g->lock);
     return -1;
   }

@@ -39,6 +39,50 @@ main(void)
   CHECK(group_charge(LONG_MAX) == -1);
   CHECK(group_charge(12) == 0); // Rejections did not spend the balance.
   CHECK(group_charge(1) == -1);
-  puts("group_charge_host: PASS");
+  ticks = 200;
+  CHECK(group_charge(1) == -1); // Zero refill never grows the balance.
+
+  test_proc.gid = 0;
+  ticks = 17;
+  CHECK(ksetbudget(3, 10, 3, BUDGET_FAIL) == 0);
+  test_proc.gid = 3;
+  CHECK(group_charge(10) == 0);
+  ticks = 116;
+  CHECK(group_charge(1) == -1); // 99 ticks: no refill.
+  test_proc.gid = 0;
+  CHECK(ksetbudget(3, 10, 3, BUDGET_FAIL) == -1); // Cannot reset clock.
+  test_proc.gid = 3;
+  ticks = 166;
+  CHECK(group_charge(3) == 0); // 149 ticks: one refill, 49 carried.
+  ticks = 216;
+  CHECK(group_charge(1) == -1); // 99 ticks since last full boundary.
+  ticks = 217;
+  CHECK(group_charge(3) == 0); // Exactly 100 ticks since boundary.
+
+  test_proc.gid = 0;
+  ticks = 0;
+  CHECK(ksetbudget(4, 10, 4, BUDGET_FAIL) == 0);
+  test_proc.gid = 4;
+  CHECK(group_charge(10) == 0);
+  ticks = 250;
+  CHECK(group_charge(8) == 0); // Two full periods, 50 ticks carried.
+  ticks = 299;
+  CHECK(group_charge(1) == -1);
+  ticks = 300;
+  CHECK(group_charge(4) == 0);
+
+  test_proc.gid = 0;
+  ticks = 0;
+  CHECK(ksetbudget(5, 7, INT_MAX, BUDGET_FAIL) == 0);
+  test_proc.gid = 5;
+  CHECK(group_charge(7) == 0);
+  ticks = UINT_MAX;
+  CHECK(group_charge(7) == 0); // Huge catch-up saturates without overflow.
+  ticks = 3;
+  CHECK(group_charge(1) == -1); // 99 ticks after last full boundary.
+  ticks = 4;
+  CHECK(group_charge(7) == 0); // Wrap and one full period.
+
+  puts("group_charge_host: PASS (boundaries, remainder, cap, wrap)");
   return 0;
 }
