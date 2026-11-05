@@ -7,6 +7,74 @@
 // Fresh boot: budget 12 12 0 fail; group 12; budgetstat race
 // Then:       budget 13 3 3 block; group 13; budgetstat block
 static void
+print_text(char *value, int width)
+{
+  printf("%s", value);
+  for (int i = strlen(value); i < width; i++)
+    printf(" ");
+}
+
+static void
+print_number(uint64 value, int width)
+{
+  int digits = 1;
+  for (uint64 n = value; n >= 10; n /= 10)
+    digits++;
+  for (int i = digits; i < width; i++)
+    printf(" ");
+  printf("%lu", value);
+}
+
+static void
+table(void)
+{
+  print_text("ID", 2);
+  printf("  ");
+  print_text("CFG", 3);
+  printf("  ");
+  print_text("MODE", 5);
+  printf("  ");
+  print_text("REMAINING/MAX", 21);
+  printf("  ");
+  print_text("REF/100", 10);
+  printf("  ");
+  print_text("ALLOWED", 8);
+  printf("  ");
+  print_text("BLOCKED", 8);
+  printf("  REFUSED\n");
+
+  for (int gid = 0; gid < NGROUP; gid++) {
+    struct budget_snapshot state;
+    if (budgetstat(gid, &state) < 0) {
+      fprintf(2, "budgetstat: snapshot of group %d failed\n", gid);
+      exit(1);
+    }
+    char *mode = state.mode == BUDGET_FAIL ? "FAIL" :
+                 state.mode == BUDGET_BLOCK ? "BLOCK" : "?";
+    print_number(state.gid, 2);
+    printf("  ");
+    print_text(state.configured ? "yes" : "no", 3);
+    printf("  ");
+    print_text(state.configured ? mode : "-", 5);
+    printf("  ");
+    print_number(state.remaining, 10);
+    printf("/");
+    print_number(state.max, 10);
+    printf("  ");
+    print_number(state.refill_per_100_ticks, 10);
+    printf("  ");
+    print_number(state.n_allowed, 8);
+    printf("  ");
+    print_number(state.n_blocked, 8);
+    printf("  ");
+    print_number(state.n_refused, 8);
+    printf("\n");
+  }
+  printf("Balances are stored snapshots; lazy refill occurs on charge.\n");
+  printf("ALLOWED=charges; BLOCKED=wait registrations; REFUSED=charge refusals.\n");
+}
+
+static void
 check(int ok, char *why)
 {
   if (!ok) {
@@ -156,12 +224,15 @@ block(void)
 int
 main(int argc, char **argv)
 {
-  check(argc == 2, "usage: budgetstat race|block");
-  if (strcmp(argv[1], "race") == 0)
+  if (argc == 1)
+    table();
+  else if (argc == 2 && strcmp(argv[1], "race") == 0)
     race();
-  else if (strcmp(argv[1], "block") == 0)
+  else if (argc == 2 && strcmp(argv[1], "block") == 0)
     block();
-  else
-    check(0, "unknown mode");
+  else {
+    fprintf(2, "usage: budgetstat [race|block]\n");
+    exit(1);
+  }
   exit(0);
 }
