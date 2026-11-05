@@ -16,6 +16,9 @@ struct group {
   uint64 remaining;
   uint64 refill_per_100_ticks;
   uint last_refill;
+  uint64 n_allowed;
+  uint64 n_blocked;
+  uint64 n_refused;
 };
 
 static struct group groups[NGROUP];
@@ -33,6 +36,9 @@ groupinit(void)
     g->remaining = 0;
     g->refill_per_100_ticks = 0;
     g->last_refill = 0;
+    g->n_allowed = 0;
+    g->n_blocked = 0;
+    g->n_refused = 0;
   }
 }
 
@@ -60,6 +66,41 @@ ksetgroup(int gid)
   // making the child runnable, and exec does not alter it.
   p->gid = gid;
   return 0;
+}
+
+// Read a coherent value snapshot under the group lock. Copying to user space
+// happens afterwards because copyout may fault in a lazily allocated page.
+int
+kbudgetstat(int gid, uint64 dst)
+{
+  struct proc *p = myproc();
+  if (p == 0 || gid < 0 || gid >= NGROUP || dst >= p->sz ||
+      sizeof(struct budget_snapshot) > p->sz - dst)
+    return -1;
+
+  struct budget_snapshot out;
+  memset(&out, 0, sizeof(out)); // Includes ABI padding; expose no stack data.
+  struct group *g = &groups[gid];
+  acquire(&g->lock);
+  out.gid = gid;
+  out.configured = g->configured;
+  out.remaining = g->remaining;
+  out.max = g->max;
+  out.refill_per_100_ticks = g->refill_per_100_ticks;
+  out.mode = g->mode;
+  out.n_allowed = g->n_allowed;
+  out.n_blocked = g->n_blocked;
+  out.n_refused = g->n_refused;
+  release(&g->lock);
+
+  return copyout(p->pagetable, p->sz, dst, (char *)&out, sizeof(out));
+}
+
+static void
+count_event(uint64 *counter)
+{
+  if (*counter != (uint64)-1)
+    (*counter)++;
 }
 
 int
@@ -99,8 +140,10 @@ ksetbudget(int gid, int max, int refill_per_100_ticks, int mode)
 static int
 charge_locked(struct group *g, uint64 cost, int deduct)
 {
-  if (!g->configured || g->remaining > g->max)
+  if (!g->configured || g->remaining > g->max) {
+    count_event(&g->n_refused);
     return -1;
+  }
 
   // Unsigned tick subtraction also handles a single 32-bit wrap. Advance by
   // whole periods only so a partial period remains for the next charge.
@@ -121,10 +164,13 @@ charge_locked(struct group *g, uint64 cost, int deduct)
     if (g->mode == BUDGET_BLOCK && cost <= g->max &&
         g->refill_per_100_ticks > 0)
       return 1;
+    count_event(&g->n_refused);
     return -1;
   }
-  if (deduct)
+  if (deduct) {
     g->remaining -= cost;
+    count_event(&g->n_allowed);
+  }
   return 0;
 }
 
@@ -142,8 +188,12 @@ charge_current(long cost, int deduct, int may_sleep)
   struct group *g = &groups[p->gid];
   int waited = 0;
   for (;;) {
-    if (waited && killed(p))
+    if (waited && killed(p)) {
+      acquire(&g->lock);
+      count_event(&g->n_refused);
+      release(&g->lock);
       return -1;
+    }
 
     // Hold tickslock through the balance check and wait registration. This
     // excludes both timer wakeups and other balance changes in that interval.
@@ -158,9 +208,15 @@ charge_current(long cost, int deduct, int may_sleep)
 
     // sleep_prepare takes p->lock, but sleep() must run with no locks held.
     if (killed(p)) {
+      acquire(&g->lock);
+      count_event(&g->n_refused);
+      release(&g->lock);
       release(&tickslock);
       return -1;
     }
+    acquire(&g->lock);
+    count_event(&g->n_blocked);
+    release(&g->lock);
     sleep_prepare(&ticks);
     release(&tickslock);
     sleep();

@@ -43,6 +43,16 @@ sys_setbudget(void)
 }
 
 uint64
+sys_budgetstat(void)
+{
+  int gid;
+  uint64 dst;
+  argint(0, &gid);
+  argaddr(1, &dst);
+  return kbudgetstat(gid, dst);
+}
+
+uint64
 sys_exit(void)
 {
   int n;

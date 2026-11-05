@@ -24,3 +24,4 @@
 #define SYS_hello  23
 #define SYS_setgroup 24
 #define SYS_setbudget 25
+#define SYS_budgetstat 26
