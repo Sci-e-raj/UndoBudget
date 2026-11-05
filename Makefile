@@ -160,6 +160,7 @@ UPROGS=\
 	$U/_creatorprobe\
 	$U/_writebudget\
 	$U/_refillbudget\
+	$U/_blockrefill\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

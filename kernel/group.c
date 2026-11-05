@@ -94,32 +94,17 @@ ksetbudget(int gid, int max, int refill_per_100_ticks, int mode)
   return 0;
 }
 
-// Charge the current process's shared group. Only FAIL mode is supported here;
-// a positive charge in BLOCK mode is denied until blocking is implemented.
-int
-group_charge(long cost)
+// Called with tickslock and the group lock held. A positive return means a
+// BLOCK charge can become affordable after a future refill.
+static int
+charge_locked(struct group *g, uint64 cost, int deduct)
 {
-  struct proc *p = myproc();
-  if (p == 0 || p->gid < 0 || p->gid >= NGROUP || cost < 0)
+  if (!g->configured || g->remaining > g->max)
     return -1;
-  if (cost == 0)
-    return 0; // Free operations also work before a group is configured.
-
-  struct group *g = &groups[p->gid];
-  // Match ksetbudget's tickslock -> group lock order. The group lock also
-  // serializes refill with all deductions from this shared balance.
-  acquire(&tickslock);
-  uint now = ticks;
-  acquire(&g->lock);
-  release(&tickslock);
-  if (!g->configured || g->mode != BUDGET_FAIL || g->remaining > g->max) {
-    release(&g->lock);
-    return -1;
-  }
 
   // Unsigned tick subtraction also handles a single 32-bit wrap. Advance by
   // whole periods only so a partial period remains for the next charge.
-  uint periods = (now - g->last_refill) / 100;
+  uint periods = (ticks - g->last_refill) / 100;
   if (periods > 0) {
     g->last_refill += periods * 100;
     if (g->refill_per_100_ticks > 0 && g->remaining < g->max) {
@@ -132,11 +117,73 @@ group_charge(long cost)
     }
   }
 
-  if ((uint64)cost > g->remaining) {
-    release(&g->lock);
+  if (cost > g->remaining) {
+    if (g->mode == BUDGET_BLOCK && cost <= g->max &&
+        g->refill_per_100_ticks > 0)
+      return 1;
     return -1;
   }
-  g->remaining -= (uint64)cost;
-  release(&g->lock);
+  if (deduct)
+    g->remaining -= cost;
   return 0;
+}
+
+// Returns 0 on success, -1 on refusal, or 1 when a non-sleeping caller
+// should drop its other locks and wait. deduct=0 only waits for affordability.
+static int
+charge_current(long cost, int deduct, int may_sleep)
+{
+  struct proc *p = myproc();
+  if (p == 0 || p->gid < 0 || p->gid >= NGROUP || cost < 0)
+    return -1;
+  if (cost == 0)
+    return 0; // Free operations also work before a group is configured.
+
+  struct group *g = &groups[p->gid];
+  int waited = 0;
+  for (;;) {
+    if (waited && killed(p))
+      return -1;
+
+    // Hold tickslock through the balance check and wait registration. This
+    // excludes both timer wakeups and other balance changes in that interval.
+    acquire(&tickslock);
+    acquire(&g->lock);
+    int result = charge_locked(g, (uint64)cost, deduct);
+    release(&g->lock);
+    if (result != 1 || !may_sleep) {
+      release(&tickslock);
+      return result;
+    }
+
+    // sleep_prepare takes p->lock, but sleep() must run with no locks held.
+    if (killed(p)) {
+      release(&tickslock);
+      return -1;
+    }
+    sleep_prepare(&ticks);
+    release(&tickslock);
+    sleep();
+    waited = 1;
+  }
+}
+
+int
+group_charge(long cost)
+{
+  return charge_current(cost, 1, 1);
+}
+
+// For call sites that hold filesystem locks: never sleep or leave a charge
+// pending. A return of 1 asks the caller to retry after waiting elsewhere.
+int
+group_try_charge(long cost)
+{
+  return charge_current(cost, 1, 0);
+}
+
+int
+group_wait_affordable(long cost)
+{
+  return charge_current(cost, 0, 1);
 }

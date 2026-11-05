@@ -211,6 +211,7 @@ sys_unlink(void)
   if (argstr(0, path, MAXPATH) < 0)
     return -1;
 
+retry:
   begin_op();
   if ((dp = nameiparent(path, name)) == 0) {
     end_op();
@@ -234,11 +235,16 @@ sys_unlink(void)
     goto bad;
   }
 
-  // All unlink checks have passed. Charge before clearing the directory entry.
-  // group_charge() takes only the group spinlock and never sleeps.
-  if (group_charge(UNLINK_COST) < 0) {
+  // All unlink checks have passed. A BLOCK wait cannot run under inode locks
+  // or inside a log transaction; retry lookup and validation after waking.
+  int charge = group_try_charge(UNLINK_COST);
+  if (charge != 0) {
     iunlockput(ip);
-    goto bad;
+    iunlockput(dp);
+    end_op();
+    if (charge > 0 && group_wait_affordable(UNLINK_COST) == 0)
+      goto retry;
+    return -1;
   }
 
   memset(&de, 0, sizeof(de));

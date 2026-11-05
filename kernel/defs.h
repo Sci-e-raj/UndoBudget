@@ -61,6 +61,8 @@ void            groupinit(void);
 int             ksetgroup(int);
 int             ksetbudget(int, int, int, int);
 int             group_charge(long);
+int             group_try_charge(long);
+int             group_wait_affordable(long);
 
 // kalloc.c
 void*           kalloc(void);
