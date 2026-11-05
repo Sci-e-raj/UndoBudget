@@ -1,6 +1,8 @@
 // Shell.
 
 #include "kernel/types.h"
+#include "kernel/param.h"
+#include "kernel/group.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
@@ -142,11 +144,65 @@ getcmd(char *buf, int nbuf)
   return 0;
 }
 
+static int
+shellspace(char c)
+{
+  return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\v';
+}
+
+static int
+command_is(char *cmd, char *name)
+{
+  int n = 0;
+  while (cmd[n] && !shellspace(cmd[n]))
+    n++;
+  return n == strlen(name) && memcmp(cmd, name, n) == 0;
+}
+
+// Split only administrative built-ins; never pass the modified line to runcmd.
+static char *
+nextword(char **cursor)
+{
+  char *s = *cursor;
+  while (shellspace(*s))
+    s++;
+  if (*s == 0) {
+    *cursor = s;
+    return 0;
+  }
+  char *word = s;
+  while (*s && !shellspace(*s))
+    s++;
+  if (*s)
+    *s++ = 0;
+  *cursor = s;
+  return word;
+}
+
+// atoi() accepts malformed input and overflow; budget arguments must not.
+static int
+decimal(char *word, int *value)
+{
+  if (word == 0 || *word == 0)
+    return -1;
+  uint n = 0;
+  for (char *p = word; *p; p++) {
+    if (*p < '0' || *p > '9')
+      return -1;
+    uint digit = *p - '0';
+    if (n > (2147483647U - digit) / 10)
+      return -1;
+    n = n * 10 + digit;
+  }
+  *value = n;
+  return 0;
+}
+
 int
 main(void)
 {
   static char buf[100];
-  int fd;
+  int fd, selected_gid = 1;
 
   // Ensure that three file descriptors are open.
   while ((fd = open("console", O_RDWR)) >= 0) {
@@ -158,6 +214,15 @@ main(void)
 
   // Read and run input commands.
   while (getcmd(buf, sizeof(buf)) >= 0) {
+    int n = strlen(buf);
+    if (n == (int)sizeof(buf) - 1 && buf[n - 1] != '\n' &&
+        buf[n - 1] != '\r') {
+      char c;
+      while (read(0, &c, 1) == 1 && c != '\n' && c != '\r')
+        ;
+      fprintf(2, "sh: command too long\n");
+      continue;
+    }
     char *cmd = buf;
     while (*cmd == ' ' || *cmd == '\t')
       cmd++;
@@ -168,9 +233,69 @@ main(void)
       cmd[strlen(cmd) - 1] = 0; // chop \n
       if (chdir(cmd + 3) < 0)
         fprintf(2, "cannot cd %s\n", cmd + 3);
+    } else if (command_is(cmd, "budget")) {
+      char *cursor = cmd;
+      nextword(&cursor);
+      char *gidword = nextword(&cursor);
+      char *maxword = nextword(&cursor);
+      char *refillword = nextword(&cursor);
+      char *modeword = nextword(&cursor);
+      int gid, max, refill, mode;
+      if (decimal(gidword, &gid) < 0 || gid == 0 || gid >= NGROUP ||
+          decimal(maxword, &max) < 0 || decimal(refillword, &refill) < 0 ||
+          modeword == 0 || nextword(&cursor) != 0) {
+        fprintf(2, "usage: budget gid max refill fail|block\n");
+        continue;
+      }
+      if (strcmp(modeword, "fail") == 0 || strcmp(modeword, "0") == 0)
+        mode = BUDGET_FAIL;
+      else if (strcmp(modeword, "block") == 0 || strcmp(modeword, "1") == 0)
+        mode = BUDGET_BLOCK;
+      else {
+        fprintf(2, "budget: invalid mode\n");
+        continue;
+      }
+      if (setbudget(gid, max, refill, mode) < 0)
+        fprintf(2, "budget: group %d could not be configured\n", gid);
+      else
+        printf("budget: group %d configured\n", gid);
+    } else if (command_is(cmd, "group")) {
+      char *cursor = cmd;
+      nextword(&cursor);
+      char *gidword = nextword(&cursor);
+      int gid;
+      if (decimal(gidword, &gid) < 0 || gid == 0 || gid >= NGROUP ||
+          nextword(&cursor) != 0) {
+        fprintf(2, "usage: group gid (1..%d)\n", NGROUP - 1);
+        continue;
+      }
+      // A probe child checks configured state without changing the shell's gid.
+      int pid = fork();
+      if (pid < 0) {
+        fprintf(2, "group: fork failed\n");
+        continue;
+      }
+      if (pid == 0)
+        exit(setgroup(gid) == 0 ? 0 : 1);
+      int status, wpid;
+      do {
+        wpid = wait(&status);
+      } while (wpid >= 0 && wpid != pid);
+      if (wpid != pid || status != 0) {
+        fprintf(2, "group: group %d unavailable\n", gid);
+        continue;
+      }
+      selected_gid = gid;
+      printf("group: using %d\n", gid);
     } else {
-      if (fork1() == 0)
+      if (fork1() == 0) {
+        // Before parsing, redirection, nested forks, or workload exec.
+        if (setgroup(selected_gid) < 0) {
+          fprintf(2, "sh: cannot enter group %d\n", selected_gid);
+          exit(1);
+        }
         runcmd(parsecmd(cmd));
+      }
       wait(0);
     }
   }

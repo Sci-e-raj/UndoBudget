@@ -5,7 +5,7 @@
 
 #define INT_MAX 2147483647
 #define INT_MIN (-INT_MAX - 1)
-#define TEST_GROUP (NGROUP - 1)
+#define TEST_GROUP (NGROUP - 1) // Reserved for this test; configure from sh.
 
 static void
 check(int ok, char *message)
@@ -17,50 +17,62 @@ check(int ok, char *message)
 }
 
 static void
-check_member(void)
+check_member(int gid)
 {
-  // Do not call setgroup here: success must come from inherited membership.
-  check(setbudget(TEST_GROUP, 100, 10, BUDGET_FAIL) == 0,
-        "inherited membership");
+  int other = gid == 1 ? TEST_GROUP : 1;
+  // Check group zero first: an accidental reset to zero must not be hidden
+  // by a later setgroup(gid) call.
+  check(setgroup(0) == -1, "cannot return to administrator group");
+  check(setgroup(gid) == 0, "current group preserved");
+  check(setgroup(other) == -1, "cannot switch workload groups");
+  check(setbudget(gid, 100, 10, BUDGET_FAIL) == -1,
+        "cannot reset own group");
+  check(setbudget(other, 100, 10, BUDGET_FAIL) == -1,
+        "cannot configure another workload group");
   check(setbudget(0, 100, 10, BUDGET_FAIL) == -1,
-        "cannot configure another group");
+        "cannot configure administrator group");
 }
 
 int
 main(int argc, char **argv)
 {
-  if (argc == 2 && strcmp(argv[1], "exec-child") == 0) {
-    check_member();
+  int gid = 1;
+  int exec_child = 0;
+  if (argc == 2 && strcmp(argv[1], "test") == 0)
+    gid = TEST_GROUP;
+  else if (argc == 2 && strcmp(argv[1], "exec-default") == 0)
+    exec_child = 1;
+  else if (argc == 2 && strcmp(argv[1], "exec-test") == 0) {
+    gid = TEST_GROUP;
+    exec_child = 1;
+  } else
+    check(argc == 1, "usage: grouptest [test]");
+
+  if (exec_child) {
+    check_member(gid);
     exit(0);
   }
 
-  check(setgroup(0) == 0, "join group zero");
-  check(setbudget(TEST_GROUP, 100, 10, BUDGET_FAIL) == -1,
-        "nonmember configuration rejected");
-  check(setgroup(TEST_GROUP) == 0, "join last valid group");
+  check_member(gid);
 
   int badids[] = {-1, NGROUP, INT_MIN, INT_MAX};
   for (int i = 0; i < sizeof(badids) / sizeof(badids[0]); i++) {
     check(setgroup(badids[i]) == -1, "invalid group rejected");
     check(setbudget(badids[i], 100, 10, BUDGET_FAIL) == -1,
           "invalid budget group rejected");
-    check_member(); // A rejected setgroup must leave membership unchanged.
+    check_member(gid);
   }
-  check(setbudget(TEST_GROUP, -1, 0, BUDGET_FAIL) == -1, "negative max");
-  check(setbudget(TEST_GROUP, INT_MIN, 0, BUDGET_FAIL) == -1, "minimum max");
-  check(setbudget(TEST_GROUP, 1, -1, BUDGET_FAIL) == -1, "negative refill");
-  check(setbudget(TEST_GROUP, 1, INT_MIN, BUDGET_FAIL) == -1, "minimum refill");
-  check(setbudget(TEST_GROUP, 1, 0, -1) == -1, "negative mode");
-  check(setbudget(TEST_GROUP, 1, 0, BUDGET_BLOCK + 1) == -1, "unknown mode");
-  check(setbudget(TEST_GROUP, 1, 0, INT_MAX) == -1, "large mode");
-  check(setbudget(TEST_GROUP, 0, 0, BUDGET_FAIL) == 0, "zero budget");
-  check(setbudget(TEST_GROUP, 1, INT_MAX, BUDGET_BLOCK) == 0,
-        "refill larger than max");
-  check(setbudget(TEST_GROUP, INT_MAX, INT_MAX, BUDGET_BLOCK) == 0,
-        "maximum signed arguments");
-  check_member();
+  check(setbudget(gid, -1, 0, BUDGET_FAIL) == -1, "negative max");
+  check(setbudget(gid, INT_MIN, 0, BUDGET_FAIL) == -1, "minimum max");
+  check(setbudget(gid, 1, -1, BUDGET_FAIL) == -1, "negative refill");
+  check(setbudget(gid, 1, INT_MIN, BUDGET_FAIL) == -1, "minimum refill");
+  check(setbudget(gid, 1, 0, -1) == -1, "negative mode");
+  check(setbudget(gid, 1, 0, BUDGET_BLOCK + 1) == -1, "unknown mode");
+  check(setbudget(gid, 1, 0, INT_MAX) == -1, "large mode");
+  check_member(gid);
 
-  // Make the parent switch groups before the child checks its inherited gid.
+  // The parent cannot change groups while the child waits to inspect its
+  // inherited gid. Both successful and failed exec must preserve membership.
   int gate[2];
   check(pipe(gate) == 0, "pipe");
   int pid = fork();
@@ -70,31 +82,31 @@ main(int argc, char **argv)
     char token;
     check(read(gate[0], &token, 1) == 1, "parent signal");
     close(gate[0]);
-    check_member();
+    check_member(gid);
     check(exec("/no-such-file", argv) == -1, "failed exec");
-    check_member();
-    char *args[] = {"grouptest", "exec-child", 0};
+    check_member(gid);
+    char *args[] = {"grouptest", gid == 1 ? "exec-default" : "exec-test", 0};
     exec("grouptest", args);
     check(0, "exec self");
   }
   close(gate[0]);
-  check(setgroup(0) == 0, "parent changes group");
+  check(setgroup(gid == 1 ? TEST_GROUP : 1) == -1,
+        "parent cannot change groups");
   check(write(gate[1], "x", 1) == 1, "release child");
   close(gate[1]);
   int status = -1;
   check(wait(&status) == pid && status == 0, "fork and exec inheritance");
-  check(setbudget(TEST_GROUP, 100, 10, BUDGET_FAIL) == -1,
-        "child did not change parent membership");
+  check_member(gid);
 
-  // Reuse process slots and contend on one shared group from several CPUs.
-  check(setgroup(TEST_GROUP) == 0, "rejoin group");
+  // Several descendants must all be denied attempts to reset the group.
   for (int i = 0; i < 4; i++) {
     pid = fork();
     check(pid >= 0, "concurrent fork");
     if (pid == 0) {
       for (int j = 0; j < 100; j++)
-        check(setbudget(TEST_GROUP, j, j + 1, j % 2) == 0,
-              "concurrent configuration");
+        check(setbudget(gid, j, j + 1, j % 2) == -1,
+              "concurrent reset denied");
+      check_member(gid);
       exit(0);
     }
   }
@@ -102,8 +114,7 @@ main(int argc, char **argv)
     status = -1;
     check(wait(&status) > 0 && status == 0, "concurrent child exit");
   }
-  check_member();
-  check(setgroup(0) == 0, "leave test group");
-  printf("grouptest: PASS (validation, fork, exec, concurrent configuration)\n");
+  check_member(gid);
+  printf("grouptest: PASS (group %d)\n", gid);
   exit(0);
 }
