@@ -53,10 +53,33 @@ observable cost threshold. Run the direct API test against the actual
 `kernel/group.c` implementation from the repository root:
 
 ```sh
-gcc -std=gnu99 -fno-builtin -I. kernel/group.c tests/group_charge_host.c -o /tmp/group_charge_host
+gcc -std=gnu99 -fno-builtin -pthread -I. kernel/group.c tests/group_charge_host.c -o /tmp/group_charge_host
 /tmp/group_charge_host
 ```
 
-It checks invalid gids, negative and oversized costs, zero cost, and a
-positive charge against an unconfigured group. All positive-cost xv6 test
+It checks invalid gids, negative and oversized costs, zero cost, a positive
+charge against an unconfigured group, exact refill boundaries, carried partial
+periods, saturation, duplicate configuration, large numeric values, one tick
+wrap, and concurrent deductions at a refill boundary. The 32-bit `ticks`
+counter cannot reveal multiple complete wraps between charges.
+
+For an xv6 refill smoke test, use a fresh/disposable image and `CPUS=3`, then
+run these separate shell commands:
+
+```text
+budget 8 12 12 fail
+group 8
+refillbudget
+budget 8 1 1 fail
+budget 6 12 0 fail
+group 6
+budgettest race
+```
+
+`refillbudget` waits at least 105 ticks after spending its initial 12 units;
+it checks that a later unlink succeeds without asserting an exact scheduler
+tick. The second `budget 8` command must be refused. `budgettest race` releases
+four children together on three CPUs; exactly one can spend a 12-unit balance.
+Preserve any existing
+`fs.img` before forcing a rebuild for a fresh run. The other `budgettest`
 groups use zero refill and FAIL mode.

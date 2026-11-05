@@ -159,6 +159,7 @@ UPROGS=\
 	$U/_budgettest\
 	$U/_creatorprobe\
 	$U/_writebudget\
+	$U/_refillbudget\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
