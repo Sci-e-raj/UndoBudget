@@ -16,6 +16,8 @@
 #include "file.h"
 #include "fcntl.h"
 
+#define UNLINK_COST 12
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -228,6 +230,13 @@ sys_unlink(void)
   if (ip->nlink < 1)
     panic("unlink: nlink < 1");
   if (ip->type == T_DIR && !isdirempty(ip)) {
+    iunlockput(ip);
+    goto bad;
+  }
+
+  // All unlink checks have passed. Charge before clearing the directory entry.
+  // group_charge() takes only the group spinlock and never sleeps.
+  if (group_charge(UNLINK_COST) < 0) {
     iunlockput(ip);
     goto bad;
   }
