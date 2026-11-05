@@ -163,6 +163,7 @@ UPROGS=\
 	$U/_blockrefill\
 	$U/_blockstress\
 	$U/_budgetstat\
+	$U/_agentop\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
