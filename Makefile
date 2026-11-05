@@ -161,6 +161,7 @@ UPROGS=\
 	$U/_writebudget\
 	$U/_refillbudget\
 	$U/_blockrefill\
+	$U/_blockstress\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
