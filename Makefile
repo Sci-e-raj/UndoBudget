@@ -156,6 +156,7 @@ UPROGS=\
 	$U/_grouptest\
 	$U/_groupauth\
 	$U/_unlinkbudget\
+	$U/_budgettest\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
