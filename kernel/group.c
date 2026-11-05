@@ -93,3 +93,26 @@ ksetbudget(int gid, int max, int refill_per_100_ticks, int mode)
   release(&tickslock);
   return 0;
 }
+
+// Charge the current process's shared group. Only FAIL mode is supported here;
+// a positive charge in BLOCK mode is denied until blocking is implemented.
+int
+group_charge(long cost)
+{
+  struct proc *p = myproc();
+  if (p == 0 || p->gid < 0 || p->gid >= NGROUP || cost < 0)
+    return -1;
+  if (cost == 0)
+    return 0; // Free operations also work before a group is configured.
+
+  struct group *g = &groups[p->gid];
+  acquire(&g->lock);
+  if (!g->configured || g->mode != BUDGET_FAIL ||
+      g->remaining > g->max || (uint64)cost > g->remaining) {
+    release(&g->lock);
+    return -1;
+  }
+  g->remaining -= (uint64)cost;
+  release(&g->lock);
+  return 0;
+}

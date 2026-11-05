@@ -60,6 +60,7 @@ void            ireclaim(int);
 void            groupinit(void);
 int             ksetgroup(int);
 int             ksetbudget(int, int, int, int);
+int             group_charge(long);
 
 // kalloc.c
 void*           kalloc(void);
