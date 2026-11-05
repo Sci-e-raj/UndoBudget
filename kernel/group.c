@@ -41,7 +41,24 @@ ksetgroup(int gid)
 {
   if (gid < 0 || gid >= NGROUP)
     return -1;
-  myproc()->gid = gid;
+
+  struct proc *p = myproc();
+  if (gid == p->gid)
+    return 0;
+  if (p->gid != 0)
+    return -1;
+
+  // Configuration is permanent once published under the group lock.
+  struct group *g = &groups[gid];
+  acquire(&g->lock);
+  int configured = g->configured;
+  release(&g->lock);
+  if (!configured)
+    return -1;
+
+  // Only the running process changes its own gid; fork copies it before
+  // making the child runnable, and exec does not alter it.
+  p->gid = gid;
   return 0;
 }
 
@@ -52,14 +69,20 @@ ksetbudget(int gid, int max, int refill_per_100_ticks, int mode)
   if (gid < 0 || gid >= NGROUP || max < 0 || refill_per_100_ticks < 0 ||
       (mode != BUDGET_FAIL && mode != BUDGET_BLOCK))
     return -1;
-  // Teaching policy: only current members may configure this shared group.
-  if (myproc()->gid != gid)
+  // Group zero is the trusted administrator. Workloads cannot reset a budget.
+  if (myproc()->gid != 0)
     return -1;
 
   struct group *g = &groups[gid];
-  // Lock order is tickslock -> group lock. Keep the timestamp and reset atomic.
+  // Lock order is tickslock -> group lock. The configured check and first
+  // configuration are atomic under the group lock.
   acquire(&tickslock);
   acquire(&g->lock);
+  if (g->configured) {
+    release(&g->lock);
+    release(&tickslock);
+    return -1;
+  }
   g->max = max;
   g->remaining = max;
   g->refill_per_100_ticks = refill_per_100_ticks;

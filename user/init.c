@@ -6,8 +6,16 @@
 #include "kernel/sleeplock.h"
 #include "kernel/fs.h"
 #include "kernel/file.h"
+#include "kernel/group.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+
+// Per-100-tick refills. The administrator must remain usable when charged;
+// the default workload gets a smaller allowance and fails when exhausted.
+#define ADMIN_MAX 10000
+#define ADMIN_REFILL 1000
+#define DEFAULT_MAX 1000
+#define DEFAULT_REFILL 100
 
 char *argv[] = {"sh", 0};
 
@@ -15,6 +23,13 @@ int
 main(void)
 {
   int pid, wpid;
+
+  // Do this once, before console creation, output, or the shell's exec.
+  // Exiting init on failure stops boot (kexit reports "init exiting").
+  if (setbudget(0, ADMIN_MAX, ADMIN_REFILL, BUDGET_BLOCK) < 0)
+    exit(1);
+  if (setbudget(1, DEFAULT_MAX, DEFAULT_REFILL, BUDGET_FAIL) < 0)
+    exit(1);
 
   if (open("console", O_RDWR) < 0) {
     mknod("console", CONSOLE, 0);
