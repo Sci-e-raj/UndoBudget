@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "kernel/types.h"
 #include "kernel/param.h"
 #include "kernel/riscv.h"
@@ -19,6 +20,14 @@ struct proc *myproc(void) { return &test_proc; }
 void initlock(struct spinlock *lk, char *name) { lk->locked = 0; lk->name = name; }
 void acquire(struct spinlock *lk) { while (__sync_lock_test_and_set(&lk->locked, 1)) {} }
 void release(struct spinlock *lk) { __sync_lock_release(&lk->locked); }
+int killed(struct proc *p) { return p->killed; }
+int copyout(pagetable_t pt, uint64 sz, uint64 dst, char *src, uint64 n)
+{
+  (void)pt; (void)sz; (void)dst; (void)src; (void)n;
+  abort(); // This test exercises charging, not user buffer copying.
+}
+void sleep_prepare(void *chan) { (void)chan; abort(); }
+void sleep(void) { abort(); } // No BLOCK-mode charge belongs in this host test.
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL: %s\n", #x); return 1; } } while (0)
 

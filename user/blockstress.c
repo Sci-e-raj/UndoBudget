@@ -194,7 +194,10 @@ independent(int gid)
   uint elapsed = (uint)uptime() - start;
   check(elapsed >= 100 && elapsed < 350,
         "independent groups each refill their own balance");
-  printf("blockstress: PASS independent %d\n", gid);
+  // One console write keeps the two background jobs' completion lines intact.
+  char *done = gid == 8 ? "blockstress: PASS independent 8\n" :
+                          "blockstress: PASS independent 9\n";
+  check(write(1, done, strlen(done)) == strlen(done), "report completion");
 }
 
 int
