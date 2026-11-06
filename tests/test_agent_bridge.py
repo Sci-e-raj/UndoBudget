@@ -77,6 +77,21 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(result["error"], {"code": "open_failed"})
         self.assertEqual(result["stdout"], "")
 
+    def test_budget_snapshot_frame_uses_gid_argument(self):
+        def snapshot(stream, command):
+            words = command.decode().split()
+            self.assertEqual(words[2:], ["get_budget_status", "1"])
+            stream.chunks.append(
+                f"UB1|{words[1]}|STAT|1,1,1000,1000,100,0,0,0,0\r\n"
+                f"UB1|{words[1]}|END|OK\r\n$ ".encode())
+
+        payload = json.dumps({"request_id": "r1", "tool": "get_budget_status",
+                              "arguments": {"gid": 1}})
+        with QemuBridge(transport=FakeStream(snapshot)) as bridge:
+            result = bridge.execute(payload)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["stdout"], "STAT|1,1,1000,1000,100,0,0,0,0")
+
     def test_timeout_closes_session_without_retry(self):
         stream = FakeStream()
         bridge = QemuBridge(transport=stream)

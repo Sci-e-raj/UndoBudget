@@ -3,10 +3,12 @@
 #include "kernel/fs.h"
 #include "kernel/stat.h"
 #include "kernel/fcntl.h"
+#include "kernel/group.h"
 #include "user/user.h"
 
-// One operation per invocation: agentop ID list_files|read_file|delete_file PATH
-// Records: UB1|ID|ITEM|hex-name, UB1|ID|DATA|hex-bytes, then exactly one
+// One operation per invocation: agentop ID TOOL PATH_OR_GID
+// Records: UB1|ID|ITEM|hex-name, UB1|ID|DATA|hex-bytes, or
+// UB1|ID|STAT|nine decimal snapshot fields, then exactly one
 // UB1|ID|END|OK or UB1|ID|END|ERR|code. No file data is printed raw.
 #define MAX_READ_BYTES 4096
 #define MAX_LIST_ENTRIES 256
@@ -14,6 +16,7 @@
 
 static char file_data[MAX_READ_BYTES + 1];
 static char hex_data[2 * HEX_CHUNK];
+static char status_data[192];
 static char *request_id;
 
 static int
@@ -219,6 +222,54 @@ delete_file(char *path)
   return end_ok();
 }
 
+static int
+append_number(int used, uint64 value)
+{
+  char reversed[20];
+  int n = 0;
+  do {
+    reversed[n++] = '0' + value % 10;
+    value /= 10;
+  } while (value != 0);
+  if (used + n > sizeof(status_data))
+    return -1;
+  while (n > 0)
+    status_data[used++] = reversed[--n];
+  return used;
+}
+
+static int
+budget_status(char *argument)
+{
+  int gid = 0, length = strlen(argument);
+  if (length < 1 || length > 2)
+    return end_error("invalid_gid");
+  for (int i = 0; i < length; i++) {
+    if (argument[i] < '0' || argument[i] > '9')
+      return end_error("invalid_gid");
+    gid = gid * 10 + argument[i] - '0';
+  }
+  if (gid >= NGROUP)
+    return end_error("invalid_gid");
+
+  struct budget_snapshot state;
+  if (budgetstat(gid, &state) < 0)
+    return end_error("snapshot_failed");
+  uint64 values[] = {state.gid, state.configured, state.remaining, state.max,
+                     state.refill_per_100_ticks, state.mode, state.n_allowed,
+                     state.n_blocked, state.n_refused};
+  int used = 0;
+  for (int i = 0; i < 9; i++) {
+    if (i != 0)
+      status_data[used++] = ',';
+    if ((used = append_number(used, values[i])) < 0)
+      return end_error("internal");
+  }
+  if (prefix("STAT") < 0 || write_all(status_data, used) < 0 || emit("\n") < 0)
+    return -1;
+  return end_ok();
+}
+
 int
 main(int argc, char **argv)
 {
@@ -236,11 +287,12 @@ main(int argc, char **argv)
   int list = strcmp(argv[2], "list_files") == 0;
   int read = strcmp(argv[2], "read_file") == 0;
   int remove = strcmp(argv[2], "delete_file") == 0;
-  if (!list && !read && !remove) {
+  int status = strcmp(argv[2], "get_budget_status") == 0;
+  if (!list && !read && !remove && !status) {
     end_error("unsupported_tool");
     exit(1);
   }
-  if (!path_ok(argv[3], list)) {
+  if (!status && !path_ok(argv[3], list)) {
     end_error("invalid_path");
     exit(1);
   }
@@ -250,6 +302,7 @@ main(int argc, char **argv)
   }
 
   int result = list ? list_files(argv[3]) :
-               read ? read_file(argv[3]) : delete_file(argv[3]);
+               read ? read_file(argv[3]) :
+               remove ? delete_file(argv[3]) : budget_status(argv[3]);
   exit(result == 0 ? 0 : 1);
 }

@@ -26,8 +26,10 @@ MAX_COMMAND = 98  # user/sh.c has a 100-byte buffer: command + newline + NUL.
 MAX_SERIAL_BYTES = 65536
 _PROMPT = re.compile(rb"(?:^|\n)\$ $")
 _HEX = re.compile(rb"(?:[0-9a-f]{2})*")
+_STAT = re.compile(rb"[0-9]+(?:,[0-9]+){8}")
 _ERROR = re.compile(rb"[a-z][a-z0-9_]*")
-_SUPPORTED = frozenset({"list_files", "read_file", "delete_file"})
+_SUPPORTED = frozenset({"list_files", "read_file", "delete_file",
+                        "get_budget_status"})
 
 
 class BridgeFailure(Exception):
@@ -123,6 +125,11 @@ class _FrameParser:
                 limit = 28 if kind == b"ITEM" else 512
                 if len(value) > limit or len(value) % 2 or _HEX.fullmatch(value) is None:
                     raise BridgeFailure("bad_frame", "invalid helper data record")
+                self.stdout.append(record.decode("ascii"))
+            elif record.startswith(b"STAT|"):
+                value = record[5:]
+                if len(value) > 188 or _STAT.fullmatch(value) is None:
+                    raise BridgeFailure("bad_frame", "invalid budget snapshot record")
                 self.stdout.append(record.decode("ascii"))
             elif record == b"END|OK":
                 self.status = "ok"
@@ -241,8 +248,10 @@ class QemuBridge:
                                     {"code": "session_closed"}, "", started)
             self._sequence += 1
             token = f"{self._prefix}{self._sequence:x}"
-            path = request["arguments"]["path"]
-            command = f"agentop {token} {tool} {path}"
+            argument = (str(request["arguments"]["gid"])
+                        if tool == "get_budget_status"
+                        else request["arguments"]["path"])
+            command = f"agentop {token} {tool} {argument}"
             if len(command) > MAX_COMMAND:
                 return self._result(request_id, "validation_error",
                                     {"code": "command_too_long"}, "", started)
