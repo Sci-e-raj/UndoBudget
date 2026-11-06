@@ -7,11 +7,14 @@ tests reserve gids 11, 13, 14, and 15. No test here calls `setbudget` to reset
 a group. Run the sequence once per fresh boot because configuration and spent
 balances persist until reboot. Fixture names also require a fresh filesystem.
 
-Build and start xv6, setting `CPUS=1` or `CPUS=3`:
+For an automatic run on fresh scratch images, use
+`python3 tests/regression.py`. To type the sequence below manually, use the
+scratch-image boot in [`demo.md`](demo.md); the commands need a new filesystem
+and unused group slots. If your repository `fs.img` is disposable, you can
+instead build and start it with `CPUS=1` or `CPUS=3`:
 
 ```sh
-make -j2
-make -B -j2 fs.img
+make -j2 kernel/kernel fs.img
 make qemu CPUS=1
 ```
 
@@ -80,6 +83,8 @@ budgettest race
 it checks that a later unlink succeeds without asserting an exact scheduler
 tick. The second `budget 8` command must be refused. `budgettest race` releases
 four children together on three CPUs; exactly one can spend a 12-unit balance.
-Preserve any existing
-`fs.img` before forcing a rebuild for a fresh run. The other `budgettest`
-groups use zero refill and FAIL mode.
+Preserve any irreplaceable `fs.img` before intentionally forcing a rebuild;
+`make -B fs.img` overwrites it. The other `budgettest` groups use zero refill
+and FAIL mode. The current tree also charges positive regular-file writes,
+but console, create/truncate, link, directory operations, and user exec are
+still outside enforcement; see [`design.md`](design.md).

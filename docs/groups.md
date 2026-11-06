@@ -49,37 +49,12 @@ configure budgets or move to another group. If that workload shell inherited
 a gid other than 1, it must select its own gid before launching commands;
 otherwise the child assignment fails closed.
 
-Group 0 has a configured budget and **will not be exempt from charging**. The
-current kernel stores maximum, remaining, refill, and mode, but does not yet
-consume or replenish budget. FAIL and BLOCK have no enforcement effect yet.
-
-## Approved charging design — not implemented
-
-The following costs are engineering choices approved for this project, not
-mandatory values copied from the reference handout. `n` is the positive
-requested write size. Each admitted positive-cost syscall will receive one
-charge before its irreversible effect; a later failure or partial write will
-not refund it. Invalid requests are rejected before charging. Unlisted calls
-cost zero.
-
-| Operation | Cost | Unit / condition |
-| --- | ---: | --- |
-| `unlink` | 12 | Per call |
-| Console write | `2 + ceil(n / 128)` | Per call, `n > 0` |
-| Same creator-group regular file write | `2 + ceil(n / 1024)` | Per call, `n > 0` |
-| Cross creator-group regular file write | `6 + 2 × ceil(n / 1024)` | Per call, `n > 0` |
-| `open(O_CREATE)` | 4 | Per call |
-| `open(O_TRUNC)` | 10 | Per call |
-| `mkdir`, `mknod` | 6 | Per call |
-| `link` | 3 | Per call |
-| User `exec` | 4 | Per call |
-| Other operations | 0 | No charge |
-
-Same/cross-group writes depend on persistent creator-group inode metadata,
-which does not exist yet. The combination rule for an `open` carrying both
-`O_CREATE` and `O_TRUNC` remains to be settled before charging; this table
-does not authorize two charges for one syscall. Filesystem side effects,
-100-tick refill, FAIL/BLOCK enforcement, and statistics are future work.
+Group 0 has a configured budget and **has no exemption in the charge
+function**. Unlink and positive regular-file writes are currently charged;
+the group table implements FAIL, BLOCK, lazy refill, and statistics. Console
+output and user exec are currently uncharged, including for group 0. The
+approved table, exact charging paths, and remaining enforcement work are in
+[`design.md`](design.md).
 
 ## Trust boundary and verification
 
@@ -108,8 +83,9 @@ grouptest
 The second `budget` command must be refused because gid 15 is already
 configured. `grouptest` itself never configures a slot; its `test` mode expects
 the shell to select reserved gid 15 first. The old administrator-only
-`groupauth admin` mode retains invalid-argument and
-concurrent first-configuration tests, using reserved gids 13 and 14. It needs
-a trusted bootstrap test harness and a fresh boot; the ordinary shell must not
-run a user test with group-0 authority. Workload-mode `groupauth` and
-`grouptest` can run repeatedly without consuming slots.
+`groupauth admin` mode retains invalid-argument and concurrent
+first-configuration tests, using reserved gids 13 and 14. It needs a trusted
+bootstrap test harness and a fresh boot; the ordinary shell assigns workload
+group membership before exec and cannot run an administrator-mode test.
+Workload-mode `groupauth` and `grouptest` can run repeatedly without consuming
+slots. See [`demo.md`](demo.md) for a fresh-boot presentation.

@@ -46,3 +46,25 @@ You will need a RISC-V "newlib" tool chain from
 https://github.com/riscv/riscv-gnu-toolchain, and qemu compiled for
 riscv64-softmmu.  Once they are installed, and in your shell
 search path, you can run "make qemu".
+
+UNDOBUDGET PROJECT NOTES
+
+This course tree extends xv6 with shared process-group budgets. The original
+xv6 acknowledgments above are preserved. For the implemented architecture,
+approved cost policy, current enforcement limits, and reproducible tests, see
+docs/design.md. For a fresh-boot presentation, follow docs/demo.md. The design
+history and viva questions are in docs/journal.md and docs/viva.md.
+
+From the repository root:
+
+  make -j2 kernel/kernel fs.img
+  make qemu CPUS=1
+
+The default make target builds only the kernel. Tests that require one-time
+group configuration or unused filenames should use a fresh, disposable image;
+tests/regression.py and experiments/collect.py create scratch images without
+replacing the repository's fs.img. Python agent tools are deterministic and
+support only list_files, read_file, delete_file, and get_budget_status end to
+end. Their write_file and execute_program requests are validated but are not
+implemented by the guest executor. The approved cost table includes operations
+that are not yet charged; see docs/design.md before claiming full coverage.
