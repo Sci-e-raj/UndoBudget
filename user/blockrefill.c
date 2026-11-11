@@ -2,7 +2,7 @@
 #include "kernel/fcntl.h"
 #include "user/user.h"
 
-// On a fresh boot, run: budget 12 12 12 block; group 12; blockrefill
+// On a fresh boot, run: budget 12 24 12 block; group 12; blockrefill
 static void
 check(int ok, char *message)
 {
@@ -38,7 +38,7 @@ main(void)
   check(fd >= 0, "written file remains");
   char contents[5];
   check(read(fd, contents, sizeof(contents)) == sizeof(contents) &&
-        memcmp(contents, "abcde", sizeof(contents)) == 0,
+          memcmp(contents, "abcde", sizeof(contents)) == 0,
         "writes preserved their contents");
   close(fd);
   check(open("br12d", O_RDONLY) < 0, "unlinked file is absent");

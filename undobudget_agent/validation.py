@@ -2,8 +2,8 @@
 
 Envelope: {"request_id": "token", "tool": "name", "arguments": {...}}.
 All keys are exact. Paths are safe relative xv6 paths; only list_files may use
-"." for the helper's current directory. The future guest helper must keep a
-fixed working directory and transport content as data, never shell text.
+"." for the helper's current directory. The guest helper uses a fixed
+working directory and transports content as data, never shell text.
 """
 
 import json

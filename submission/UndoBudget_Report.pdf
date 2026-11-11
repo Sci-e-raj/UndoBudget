@@ -1,0 +1,122 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 3804 >>
+stream
+BT /F2 17 Tf 50 792 Td (UndoBudget: Irreversibility Budget for xv6 Process Groups) Tj ET
+BT /F1 10 Tf 50 764 Td (CSL3030 project report Team: [Add names and roll numbers] Submission date: [Add date]) Tj ET
+BT /F2 12 Tf 50 742 Td (1. Goal and architecture) Tj ET
+BT /F1 10 Tf 50 724 Td (UndoBudget limits selected irreversible actions in the course-provided xv6-riscv tree.) Tj ET
+BT /F1 10 Tf 50 711 Td (Processes in the same group spend from one shared balance. Fork copies a group ID, and) Tj ET
+BT /F1 10 Tf 50 698 Td (exec preserves it; neither action creates a fresh budget. Group 0 is the trusted) Tj ET
+BT /F1 10 Tf 50 685 Td (administrator. init configures group 0 and default workload group 1 once at boot. The) Tj ET
+BT /F1 10 Tf 50 672 Td (shell stays in group 0 and moves command children into a configured workload group) Tj ET
+BT /F1 10 Tf 50 659 Td (before redirection or exec.) Tj ET
+0.94 g 45 512 505 133 re f 0 g
+BT /F3 8 Tf 53 637 Td (  init + shell \(gid 0\) ---- setbudget once ----> groups[0..15]) Tj ET
+BT /F3 8 Tf 53 626 Td (          |) Tj ET
+BT /F3 8 Tf 53 615 Td (          +---- fork; child setgroup\(gid\) ----> workload + descendants) Tj ET
+BT /F3 8 Tf 53 604 Td (                                                |) Tj ET
+BT /F3 8 Tf 53 593 Td (                                                | charged syscall) Tj ET
+BT /F3 8 Tf 53 582 Td (                                                v) Tj ET
+BT /F3 8 Tf 53 571 Td (  syscall handler / filewrite / exec ---> group_charge\(gid, cost\)) Tj ET
+BT /F3 8 Tf 53 560 Td (                                                |) Tj ET
+BT /F3 8 Tf 53 549 Td (                         per-group lock: refill, check, deduct or wait) Tj ET
+BT /F3 8 Tf 53 538 Td (                                                |) Tj ET
+BT /F3 8 Tf 53 527 Td (                         admit effect only after successful charge) Tj ET
+BT /F1 10 Tf 50 509 Td (The groups[16] table stores maximum, remaining balance, refill rate, mode, and counters) Tj ET
+BT /F1 10 Tf 50 496 Td (under one spinlock per group. A process stores only gid. setbudget is group-0-only and) Tj ET
+BT /F1 10 Tf 50 483 Td (succeeds once per group; workload membership is one-way. budgetstat returns a locked) Tj ET
+BT /F1 10 Tf 50 470 Td (snapshot to user space.) Tj ET
+BT /F2 12 Tf 50 448 Td (2. Cost policy and enforcement) Tj ET
+BT /F1 10 Tf 50 430 Td (The group chose a cost policy because the PDF's numbers were examples. One positive-cost) Tj ET
+BT /F1 10 Tf 50 417 Td (syscall is charged before its effect, with no refund after a later failure. A rejected) Tj ET
+BT /F1 10 Tf 50 404 Td (operation has no intended irreversible effect.) Tj ET
+BT /F3 8.5 Tf 50 387 Td (| Operation | Cost |) Tj ET
+BT /F3 8.5 Tf 50 375 Td (| unlink | 12 |) Tj ET
+BT /F3 8.5 Tf 50 363 Td (| Console write, n > 0 | 2 + ceil\(n/128\) |) Tj ET
+BT /F3 8.5 Tf 50 351 Td (| Same-group file write, n > 0 | 2 + ceil\(n/1024\) |) Tj ET
+BT /F3 8.5 Tf 50 339 Td (| Cross-group file write, n > 0 | 6 + 2*ceil\(n/1024\) |) Tj ET
+BT /F3 8.5 Tf 50 327 Td (| open\(O_CREATE\), open\(O_TRUNC\) | 4, 10; both flags cost 14 |) Tj ET
+BT /F3 8.5 Tf 50 315 Td (| mkdir / mknod, link, user exec | 6, 3, 4 |) Tj ET
+BT /F3 8.5 Tf 50 303 Td (| Other calls | 0 |) Tj ET
+BT /F1 10 Tf 50 291 Td (The creator group is stored in both disk and memory inodes and survives reboot. It is) Tj ET
+BT /F1 10 Tf 50 278 Td (initialized when an inode is allocated and cleared on reuse. This lets filewrite) Tj ET
+BT /F1 10 Tf 50 265 Td (distinguish same-group and cross-group writes. The disk format and mkfs were updated) Tj ET
+BT /F1 10 Tf 50 252 Td (together. New images contain 4,000 blocks so the additional programs leave space for) Tj ET
+BT /F1 10 Tf 50 239 Td (xv6's writebig test.) Tj ET
+BT /F1 8 Tf 505 25 Td (Page 1 of 2) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 3051 >>
+stream
+BT /F2 12 Tf 50 787 Td (3. Concurrency, challenges, and approach) Tj ET
+BT /F1 10 Tf 50 769 Td (FAIL mode refuses an unaffordable charge. BLOCK mode waits for enough points from full) Tj ET
+BT /F1 10 Tf 50 756 Td (100-tick refill periods, then rechecks and deducts atomically. The charge path takes) Tj ET
+BT /F1 10 Tf 50 743 Td (tickslock before the group lock. A waiter registers on the tick channel before releasing) Tj ET
+BT /F1 10 Tf 50 730 Td (the tick lock, preventing a lost wakeup; it sleeps with no spinlock held. Filesystem) Tj ET
+BT /F1 10 Tf 50 717 Td (operations that might BLOCK release inode and log locks before waiting and repeat) Tj ET
+BT /F1 10 Tf 50 704 Td (validation on retry.) Tj ET
+BT /F1 10 Tf 50 687 Td (Three practical problems shaped the implementation. First, this xv6 uses) Tj ET
+BT /F1 10 Tf 50 674 Td (sleep_prepare\(\)/sleep\(\) and size-aware copyin/copyout, so upstream code could not be) Tj ET
+BT /F1 10 Tf 50 661 Td (copied directly. Second, a console charge makes very small workloads unable to print) Tj ET
+BT /F1 10 Tf 50 648 Td (their own failure. A trusted shell relay runs the workload in its selected group,) Tj ET
+BT /F1 10 Tf 50 635 Td (forwards its pipe output, and charges group 0 for console output. Third, the larger) Tj ET
+BT /F1 10 Tf 50 622 Td (user-program image initially caused writebig to run out of blocks; increasing new-image) Tj ET
+BT /F1 10 Tf 50 609 Td (capacity fixed it.) Tj ET
+BT /F1 10 Tf 50 592 Td (A deterministic Python agent validates six allowlisted requests and sends them through a) Tj ET
+BT /F1 10 Tf 50 579 Td (framed xv6 helper. File content is sent as bounded hex data, never as shell text. The) Tj ET
+BT /F1 10 Tf 50 566 Td (bridge requires a matching completion marker and does not report success from an echo,) Tj ET
+BT /F1 10 Tf 50 553 Td (timeout, or broken connection.) Tj ET
+BT /F2 12 Tf 50 531 Td (4. Verification and limits) Tj ET
+BT /F1 10 Tf 50 513 Td (On fresh images, the regression suite reported 32 pass, 0 fail, 0 untested across one) Tj ET
+BT /F1 10 Tf 50 500 Td (and three CPUs. It covers authorization, fork/exec sharing, exact costs, refusal with) Tj ET
+BT /F1 10 Tf 50 487 Td (surviving files, refill and BLOCK races, inode persistence, and agent responses. Ten) Tj ET
+BT /F1 10 Tf 50 474 Td (repeatable experiments produced raw serial logs, CSV observations, and four plots. Full) Tj ET
+BT /F1 10 Tf 50 461 Td (xv6 usertests and crash recovery also passed in a disposable copy. The 26-command demo) Tj ET
+BT /F1 10 Tf 50 448 Td (sequence passed.) Tj ET
+BT /F1 10 Tf 50 431 Td (xv6 has no user identities or file permissions, so the group-0 shell and its binary are) Tj ET
+BT /F1 10 Tf 50 418 Td (trusted. A failure after an admitted truncate or partial write can leave an incomplete) Tj ET
+BT /F1 10 Tf 50 405 Td (file; the charge is retained by policy. Group slots are configured once per boot. These) Tj ET
+BT /F1 10 Tf 50 392 Td (are project limits, not guarantees of general-purpose OS isolation.) Tj ET
+BT /F1 8 Tf 505 25 Td (Page 2 of 2) Tj ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000266 00000 n 
+0000000334 00000 n 
+0000000480 00000 n 
+0000004335 00000 n 
+0000004481 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+7583
+%%EOF

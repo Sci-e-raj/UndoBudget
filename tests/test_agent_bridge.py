@@ -44,7 +44,7 @@ class FakeStream:
 
 
 def framed(stream, command, payload=b"ITEM|666f6f"):
-    token = command.decode("ascii").split()[1]
+    token = command.decode("ascii").split()[2]
     stream.chunks.extend([
         command + b"\r\nUB1|wrong|END|OK\r\n",
         f"UB1|{token}|".encode()[:8],
@@ -68,7 +68,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_guest_error_is_distinct_from_transport_error(self):
         def fail(stream, command):
-            token = command.decode().split()[1]
+            token = command.decode().split()[2]
             stream.chunks.append(f"UB1|{token}|END|ERR|open_failed\r\n$ ".encode())
 
         with QemuBridge(transport=FakeStream(fail)) as bridge:
@@ -80,10 +80,10 @@ class BridgeTests(unittest.TestCase):
     def test_budget_snapshot_frame_uses_gid_argument(self):
         def snapshot(stream, command):
             words = command.decode().split()
-            self.assertEqual(words[2:], ["get_budget_status", "1"])
+            self.assertEqual(words[3:], ["get_budget_status", "1"])
             stream.chunks.append(
-                f"UB1|{words[1]}|STAT|1,1,1000,1000,100,0,0,0,0\r\n"
-                f"UB1|{words[1]}|END|OK\r\n$ ".encode())
+                f"UB1|{words[2]}|STAT|1,1,1000,1000,100,0,0,0,0\r\n"
+                f"UB1|{words[2]}|END|OK\r\n$ ".encode())
 
         payload = json.dumps({"request_id": "r1", "tool": "get_budget_status",
                               "arguments": {"gid": 1}})
@@ -91,6 +91,30 @@ class BridgeTests(unittest.TestCase):
             result = bridge.execute(payload)
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["stdout"], "STAT|1,1,1000,1000,100,0,0,0,0")
+
+    def test_write_payload_is_hex_data_after_ready_and_ack(self):
+        state = {"token": None}
+
+        def handshake(stream, data):
+            if state["token"] is None:
+                words = data.decode().split()
+                self.assertEqual(words[:2], ["relay", "agentop"])
+                state["token"] = words[2]
+                stream.chunks.append(f"UB1|{words[2]}|READY|OK\n".encode())
+            elif data == b".\n":
+                stream.chunks.append(
+                    f"UB1|{state['token']}|END|OK\n$ ".encode())
+            else:
+                self.assertEqual(data, b"6869\n")
+                stream.chunks.append(f"UB1|{state['token']}|ACK|OK\n".encode())
+
+        stream = FakeStream(handshake)
+        payload = json.dumps({"request_id": "r2", "tool": "write_file",
+                              "arguments": {"path": "note", "content": "hi"}})
+        with QemuBridge(transport=stream) as bridge:
+            result = bridge.execute(payload)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(stream.writes[1:], [b"6869\n", b".\n"])
 
     def test_timeout_closes_session_without_retry(self):
         stream = FakeStream()
@@ -129,24 +153,20 @@ class BridgeTests(unittest.TestCase):
                          "broken_pipe")
 
         def bad_frame(stream, command):
-            token = command.decode().split()[1]
+            token = command.decode().split()[2]
             stream.chunks.append(f"UB1|{token}|END|MAYBE\n".encode())
 
         bridge = QemuBridge(transport=FakeStream(bad_frame))
         self.assertEqual(bridge.execute(request())["error"]["code"],
                          "bad_frame")
 
-    def test_validation_and_unsupported_tools_send_nothing(self):
+    def test_invalid_requests_send_nothing(self):
         stream = FakeStream()
         bridge = QemuBridge(transport=stream)
         self.assertEqual(bridge.execute(request("read_file", "../bad"))["status"],
                          "validation_error")
         self.assertEqual(bridge.execute(request("write_file", "note"))["status"],
                          "validation_error")  # missing content
-        write_request = json.dumps({"request_id": "r2", "tool": "write_file",
-                                    "arguments": {"path": "note", "content": "hi"}})
-        self.assertEqual(bridge.execute(write_request)["error"],
-                         {"code": "unsupported_tool"})
         self.assertEqual(bridge.execute(request(), timeout=0)["error"],
                          {"code": "invalid_timeout"})
         long_path = "/".join(["a" * 14] * 7)
@@ -189,7 +209,7 @@ class BridgeTests(unittest.TestCase):
         bridge.close()
         self.assertEqual({result["request_id"] for result in results}, {"r1", "r2"})
         self.assertTrue(all(result["status"] == "ok" for result in results))
-        tokens = [command.decode().split()[1] for command in stream.writes]
+        tokens = [command.decode().split()[2] for command in stream.writes]
         self.assertEqual(len(set(tokens)), 2)
 
     def test_queued_request_times_out_without_closing_active_session(self):

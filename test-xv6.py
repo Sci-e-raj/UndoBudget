@@ -33,6 +33,13 @@ class QEMU(object):
         self.outbytes = bytearray()
         self.reported = 0
         time.sleep(1)
+        # Upstream filesystem tests exercise many charged operations. Run
+        # them in a dedicated workload group so the default group-1 limit
+        # tests ordinary workloads rather than the test harness itself.
+        self.cmd("budget 10 2147483647 2147483647 fail\n")
+        self.monitor(r".*budget: group 10 configured", timeout=20)
+        self.cmd("group 10\n")
+        self.monitor(r".*group: using 10", timeout=20)
 
     def reset_fs(self):
         try:
@@ -130,8 +137,27 @@ class QEMU(object):
 
 def crash_log():
     q = QEMU(True)
-    q.cmd("logstress f0 f1 f2 f3 f4 f5\n")
-    time.sleep(2)
+    q.cmd("logstress f0 f1 f2 f3 f4 f5 &\n")
+    # The larger guest image and group setup alter startup timing. Observe
+    # f5 on disk before crashing; otherwise recovery of an earlier log entry
+    # can be mistaken for recovery of this workload's writes.
+    deadline = time.time() + 10
+    observed = False
+    while time.time() < deadline and not observed:
+        q.read()
+        start = len(q.output)
+        q.cmd("ls\n")
+        while time.time() < deadline:
+            q.read()
+            new_output = q.output[start:]
+            if re.search(r"(?m)^f5\s", new_output):
+                observed = True
+                break
+            if re.search(r"(?m)^\$ ", new_output):
+                break
+            time.sleep(0.02)
+    if not observed:
+        q.error("f5 fixture before crash")
     q.crash()
     q.stop()
 
@@ -167,7 +193,7 @@ def recover_orphan():
 
 def test_log():
     print("Test recovery of log")
-    for i in range(20):
+    for i in range(40):
         crash_log()
         ok = recover_log()
         if ok:

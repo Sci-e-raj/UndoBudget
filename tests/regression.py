@@ -77,7 +77,7 @@ def creator_suite(directory, cpus):
     guest_steps(image, cpus, [
         ("budget 2 100 0 fail", [r"budget: group 2 configured"], 10),
         ("group 2", [r"group: using 2"], 10),
-        ("creatorprobe create", [r"creatorprobe: PASS create inum [0-9]+"], 15),
+        ("relay creatorprobe create", [r"creatorprobe: PASS create inum [0-9]+"], 15),
         ("sync", [], 10),
     ])
     first = run_command([sys.executable, "tests/check_creator_inode.py",
@@ -85,7 +85,7 @@ def creator_suite(directory, cpus):
     guest_steps(image, cpus, [
         ("budget 3 100 0 fail", [r"budget: group 3 configured"], 10),
         ("group 3", [r"group: using 3"], 10),
-        ("creatorprobe replace", [r"creatorprobe: PASS replace inum [0-9]+"], 15),
+        ("relay creatorprobe replace", [r"creatorprobe: PASS replace inum [0-9]+"], 15),
         ("sync", [], 10),
     ])
     second = run_command([sys.executable, "tests/check_creator_inode.py",
@@ -98,59 +98,86 @@ def creator_suite(directory, cpus):
 
 
 BOOT_AUTH = [
-    ("budgetstat", [r"0\s+yes\s+BLOCK\s+10000/\s*10000",
-                    r"1\s+yes\s+FAIL\s+1000/\s*1000"], 15),
+    ("relay budgetstat", [r"0\s+yes\s+BLOCK\s+[0-9]+/\s*10000",
+                    r"1\s+yes\s+FAIL\s+996/\s*1000"], 15),
     ("hello", [r"hello: PASS"], 15),
     ("groupauth", [r"groupauth: PASS \(default workload\)"], 20),
     ("grouptest", [r"grouptest: PASS \(group 1\)"], 20),
     ("forktest", [r"fork test OK"], 45),
     ("budget 15 100 0 fail", [r"budget: group 15 configured"], 10),
     ("group 15", [r"group: using 15"], 10),
-    ("groupauth selected", [r"groupauth: PASS \(selected group\)"], 20),
-    ("grouptest test", [r"grouptest: PASS \(group 15\)"], 20),
+    ("relay groupauth selected", [r"groupauth: PASS \(selected group\)"], 20),
+    ("relay grouptest test", [r"grouptest: PASS \(group 15\)"], 20),
 ]
 
 FAIL_ACCOUNTING = [
-    ("budget 11 12 0 fail", [r"budget: group 11 configured"], 10),
+    ("budget 11 34 0 fail", [r"budget: group 11 configured"], 10),
     ("group 11", [r"group: using 11"], 10),
-    ("unlinkbudget", [r"unlinkbudget: PASS"], 20),
+    ("relay unlinkbudget", [r"unlinkbudget: PASS"], 20),
     *((f"budget {gid} {maximum} 0 fail", [rf"budget: group {gid} configured"], 10)
-      for gid, maximum in ((2, 50), (3, 12), (4, 12), (5, 12), (6, 12), (7, 11))),
+      for gid, maximum in ((2, 78), (3, 24), (4, 24), (5, 24), (6, 32), (7, 8))),
     *((command, [pattern], 30)
       for gid, mode in ((2, "fifty"), (3, "shared"), (4, "first"),
                         (5, "second"), (6, "race"), (7, "boundary"))
       for command, pattern in ((f"group {gid}", rf"group: using {gid}"),
-                               (f"budgettest {mode}", rf"budgettest: PASS {mode}"))),
+                               (f"relay budgettest {mode}", rf"budgettest: PASS {mode}"))),
 ]
 
 WRITE_OWNERSHIP = [
     *((f"budget {gid} {maximum} 0 fail", [rf"budget: group {gid} configured"], 10)
-      for gid, maximum in ((8, 7), (9, 15), (10, 16))),
+      for gid, maximum in ((8, 15), (9, 19), (10, 20))),
     *((command, [pattern], 20)
       for gid, mode in ((8, "same"), (9, "cross-deny"), (10, "cross-allow"))
       for command, pattern in ((f"group {gid}", rf"group: using {gid}"),
-                               (f"writebudget {mode}", rf"writebudget: PASS {mode}"))),
+                               (f"relay writebudget {mode}", rf"writebudget: PASS {mode}"))),
 ]
 
 REFILL = [
-    ("budget 8 12 12 fail", [r"budget: group 8 configured"], 10),
+    ("budget 8 24 12 fail", [r"budget: group 8 configured"], 10),
     ("group 8", [r"group: using 8"], 10),
-    ("refillbudget", [r"refillbudget: PASS \(elapsed [0-9]+ ticks\)"], 30),
+    ("relay refillbudget", [r"refillbudget: PASS \(elapsed [0-9]+ ticks\)"], 30),
 ]
 
 SNAPSHOTS = [
-    ("budget 12 12 0 fail", [r"budget: group 12 configured"], 10),
+    ("budget 12 40 0 fail", [r"budget: group 12 configured"], 10),
     ("group 12", [r"group: using 12"], 10),
-    ("budgetstat race", [r"budgetstat: PASS race"], 30),
-    ("budget 13 3 3 block", [r"budget: group 13 configured"], 10),
+    ("relay budgetstat race", [r"budgetstat: PASS race"], 30),
+    ("budget 13 11 3 block", [r"budget: group 13 configured"], 10),
     ("group 13", [r"group: using 13"], 10),
-    ("budgetstat block", [r"budgetstat: PASS block"], 45),
+    ("relay budgetstat block", [r"budgetstat: PASS block"], 45),
 ]
 
 BLOCK_REFILL = [
-    ("budget 12 12 12 block", [r"budget: group 12 configured"], 10),
+    ("budget 12 24 12 block", [r"budget: group 12 configured"], 10),
     ("group 12", [r"group: using 12"], 10),
-    ("blockrefill", [r"blockrefill: PASS \([0-9]+ ticks\)"], 55),
+    ("relay blockrefill", [r"blockrefill: PASS \([0-9]+ ticks\)"], 55),
+]
+
+FS_COSTS = [
+    ("budget 14 200 0 fail", [r"budget: group 14 configured"], 10),
+    ("group 14", [r"group: using 14"], 10),
+    ("relay fsbudget costs", [r"fsbudget: PASS costs"], 20),
+    ("budget 15 6 0 fail", [r"budget: group 15 configured"], 10),
+    ("group 15", [r"group: using 15"], 10),
+    ("relay fsbudget deny", [r"fsbudget: PASS deny"], 20),
+]
+
+EXEC_COSTS = [
+    ("budget 15 7 0 fail", [r"budget: group 15 configured"], 10),
+    ("group 15", [r"group: using 15"], 10),
+    ("relay execbudget deny", [r"execbudget: PASS deny"], 15),
+    ("budget 14 200 0 fail", [r"budget: group 14 configured"], 10),
+    ("group 14", [r"group: using 14"], 10),
+    ("relay execbudget allow", [r"hello: PASS"], 15),
+]
+
+CONSOLE_COSTS = [
+    ("budget 15 7 0 fail", [r"budget: group 15 configured"], 10),
+    ("group 15", [r"group: using 15"], 10),
+    ("relay consolebudget 128", [r"consolebudget: PASS 128"], 15),
+    ("budget 14 8 0 fail", [r"budget: group 14 configured"], 10),
+    ("group 14", [r"group: using 14"], 10),
+    ("relay consolebudget 129", [r"consolebudget: PASS 129"], 15),
 ]
 
 USERTESTS = [
@@ -189,6 +216,9 @@ def main():
                                 ("refill-smoke", REFILL),
                                 ("budget-snapshots", SNAPSHOTS),
                                 ("block-refill", BLOCK_REFILL),
+                                ("filesystem-costs", FS_COSTS),
+                                ("exec-costs", EXEC_COSTS),
+                                ("console-costs", CONSOLE_COSTS),
                                 ("usertests", USERTESTS)):
                 commands = [step[0] for step in steps]
                 record(name, cpus, commands,
@@ -199,6 +229,10 @@ def main():
                     "<reboot>", "creatorprobe replace",
                     "check_creator_inode.py cg_new 3 --absent cg_old"],
                    lambda cpus=cpus: creator_suite(directory, cpus))
+            record("administrator-boot", cpus,
+                   [f"python3 tests/admin_boot.py {cpus}"],
+                   lambda cpus=cpus: run_command(
+                       [sys.executable, "tests/admin_boot.py", str(cpus)], 90))
             record("block-waiters-independent", cpus,
                    [f"python3 tests/blockstress.py {cpus}"],
                    lambda cpus=cpus: run_command(
@@ -208,12 +242,6 @@ def main():
                    lambda cpus=cpus: run_command(
                        [sys.executable, "tests/agent_budget_e2e.py", str(cpus)], 90))
 
-        results.append({"suite": "exec-ownership-cost", "cpus": None,
-                        "status": "UNTESTED", "commands": [],
-                        "detail": "Ownership-dependent exec cost is not assigned; approved exec cost is flat 4 and currently unenforced."})
-        results.append({"suite": "groupauth-admin-mode", "cpus": None,
-                        "status": "UNTESTED", "commands": ["groupauth admin"],
-                        "detail": "Ordinary shell assigns workload gid before exec; requires a trusted boot harness."})
         for row in results:
             if row["status"] == "UNTESTED":
                 print(f"UNTESTED CPUS=- {row['suite']}: {row['detail']}", flush=True)

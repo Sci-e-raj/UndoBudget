@@ -24,16 +24,16 @@ from blockstress import Guest, build_image  # noqa: E402
 
 
 CASES = {
-    "fail": {"budgets": [(2, 48, 0, "fail")], "gid": 2,
+    "fail": {"budgets": [(2, 76, 0, "fail")], "gid": 2,
              "expected": {2: (4, 2, 0)}},
-    "block": {"budgets": [(3, 12, 12, "block")], "gid": 3,
+    "block": {"budgets": [(3, 32, 12, "block")], "gid": 3,
               "expected": {3: (4, 0, None)}},
-    "shared": {"budgets": [(4, 24, 0, "fail")], "gid": 4,
+    "shared": {"budgets": [(4, 40, 0, "fail")], "gid": 4,
                "expected": {4: (2, 1, 0)}},
-    "race": {"budgets": [(5, 48, 0, "fail")], "gid": 5,
+    "race": {"budgets": [(5, 84, 0, "fail")], "gid": 5,
              "expected": {5: (4, 4, 0)}},
-    "independent": {"budgets": [(6, 12, 0, "fail"),
-                                 (7, 24, 0, "fail")], "gid": None,
+    "independent": {"budgets": [(6, 36, 0, "fail"),
+                                 (7, 44, 0, "fail")], "gid": None,
                     "expected": {6: (1, 2, 0), 7: (2, 1, 0)}},
 }
 OBSERVATION_FIELDS = ["cpus", "scenario", "gid", "event", "tick",
@@ -76,6 +76,8 @@ def parse_observations(log, cpus, scenario, raw_log):
 
 def validate(records, scenario):
     expected = CASES[scenario]["expected"]
+    fixtures = {"fail": 6, "block": 4, "shared": 3, "race": 8,
+                "independent": 4}[scenario]
     for gid, (completed, refused, blocked) in expected.items():
         group = [row for row in records if row["gid"] == gid]
         starts = [row for row in group if row["event"] == "start"]
@@ -83,10 +85,14 @@ def validate(records, scenario):
         if len(starts) != 1 or len(ends) != 1:
             raise AssertionError(f"group {gid}: expected one start and end")
         first, last = starts[0], ends[0]
-        if first["remaining"] != first["max"] or first["allowed"] != 0:
-            raise AssertionError(f"group {gid}: not a fresh budget")
-        if (last["completed"] != completed or last["allowed"] != completed
-                or last["refused"] != refused or last["remaining"] != 0):
+        if (first["remaining"] != first["max"] - 4 - 4 * fixtures or
+                first["allowed"] != 1 + fixtures):
+            raise AssertionError(f"group {gid}: fixture costs differ from policy")
+        final_remaining = 4 if scenario == "independent" and gid == 6 else 0
+        if (last["completed"] != completed or
+                last["allowed"] != completed + fixtures + 1 or
+                last["refused"] != refused or
+                last["remaining"] != final_remaining):
             raise AssertionError(f"group {gid}: unexpected final snapshot: {last}")
         if blocked is not None and last["blocked"] != blocked:
             raise AssertionError(f"group {gid}: unexpected blocked counter")
@@ -114,7 +120,7 @@ def run_guest(guest, scenario):
     if scenario != "independent":
         gid = spec["gid"]
         shell_command(guest, f"group {gid}", rf"group: using {gid}")
-        guest.send(f"budgetexp {scenario}")
+        guest.send(f"relay budgetexp {scenario}")
         result = guest.expect(
             rf"UBEXP case={scenario} event=end [^\n]*refused=[0-9]+\n|"
             r"budgetexperiment: FAIL", 70)
@@ -124,7 +130,7 @@ def run_guest(guest, scenario):
     else:
         for gid in (6, 7):
             shell_command(guest, f"group {gid}", rf"group: using {gid}")
-            guest.send(f"budgetexp independent {gid} &")
+            guest.send(f"relaybg budgetexp independent {gid}")
             guest.expect(rf"UBEXP case=independent event=ready [^\n]*"
                          rf"gid={gid} [^\n]*refused=[0-9]+\n", 20)
         deadline = time.monotonic() + 35
@@ -149,10 +155,10 @@ def collect_one(directory, cpus, scenario):
     commands = [f"budget {gid} {maximum} {refill} {mode}"
                 for gid, maximum, refill, mode in spec["budgets"]]
     if scenario == "independent":
-        commands += ["group 6", "budgetexp independent 6 &",
-                     "group 7", "budgetexp independent 7 &"]
+        commands += ["group 6", "relaybg budgetexp independent 6",
+                     "group 7", "relaybg budgetexp independent 7"]
     else:
-        commands += [f"group {spec['gid']}", f"budgetexp {scenario}"]
+        commands += [f"group {spec['gid']}", f"relay budgetexp {scenario}"]
     command = f"CPUS={cpus}; " + "; ".join(commands)
     started = time.monotonic()
     guest = None

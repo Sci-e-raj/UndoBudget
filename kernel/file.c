@@ -144,6 +144,11 @@ filewrite(struct file *f, uint64 addr, int n)
   } else if (f->type == FD_DEVICE) {
     if (f->major < 0 || f->major >= NDEV || !devsw[f->major].write)
       return -1;
+    if (f->major == CONSOLE && n > 0) {
+      long cost = 2 + ((long)n + 127) / 128;
+      if (group_charge(cost) < 0)
+        return -1;
+    }
     ret = devsw[f->major].write(1, addr, n);
   } else if (f->type == FD_INODE) {
     if (n > 0) {

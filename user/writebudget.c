@@ -2,7 +2,7 @@
 #include "kernel/fcntl.h"
 #include "user/user.h"
 
-// On a fresh boot, configure gid 8/9/10 with 7/15/16 units, no refill.
+// On a fresh boot, configure gid 8/9/10 with 15/19/20 units, no refill.
 // Run same, cross-deny, cross-allow in that order, selecting each group.
 #define WRITE_LEN 4097
 
@@ -43,11 +43,10 @@ main(int argc, char **argv)
     check(fd >= 0, "create test file");
     memset(data, 'A', WRITE_LEN);
     check(write(-1, data, WRITE_LEN) == -1 &&
-          write(99, data, WRITE_LEN) == -1 &&
-          write(fd, data, -1) == -1,
+            write(99, data, WRITE_LEN) == -1 && write(fd, data, -1) == -1,
           "invalid fd and size rejected without charge");
     check(write(fd, data, WRITE_LEN) == WRITE_LEN,
-          "same-group 4097-byte write costs 7 once");
+          "same-group 4097-byte write costs 7 after 4-unit creation");
     check(write(fd, "X", 1) == -1, "exhausted budget refuses next write");
     check(write(fd, data, 0) == 0, "zero-length write is free");
     close(fd);

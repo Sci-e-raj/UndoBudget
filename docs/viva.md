@@ -1,13 +1,12 @@
 # UndoBudget viva questions and defensible answers
 
 Use [`design.md`](design.md) for the exact policy and current code status.
-Answers below describe this repository as tested; they do not turn planned
-charges into implemented features.
+Answers below describe this repository's implemented and tested behavior.
 
 1. **What is an irreversibility budget?** A shared allowance assigned to a
    process group. Selected kernel operations deduct from it before effects.
-   This tree currently enforces it for unlink and positive regular-file
-   writes. Reads and other unlisted operations remain free.
+   This tree currently enforces it for unlink, positive regular-file writes,
+   create/truncate, mkdir, mknod, and link. Reads and unlisted operations are free.
 
 2. **Why store only a gid in `struct proc`?** The balance lives in one
    `groups[NGROUP]` slot protected by its lock. Fork copies the gid, so parent
@@ -26,8 +25,7 @@ charges into implemented features.
 
 5. **Does group 0 bypass charging?** No: `group_charge` has no group-0 special
    case, and `init` gives it a BLOCK budget of 10000 with refill 1000/100
-   ticks. Console output and exec are currently uncharged for *all* groups,
-   because those policy hooks are not implemented.
+   ticks. Console output and user exec are charged for group 0 as well.
 
 6. **Where does the kernel charge unlink?** In `sys_unlink`, after the path,
    target, dot-name, and nonempty-directory checks, and immediately before
@@ -109,16 +107,15 @@ charges into implemented features.
     snapshot and target existence to establish a controlled budget-refusal
     case. No arbitrary shell strings or LLM are part of this agent.
 
-19. **Which approved features remain untested or unfinished?** The current
-    kernel does not charge console writes, create/truncate, mkdir/mknod,
-    link, or user exec. The agent validates `write_file` and
-    `execute_program` requests but does not execute them. The trusted
-    administrator-mode `groupauth` test needs a boot harness because the
-    ordinary shell assigns nonzero gid before exec.
+19. **Which approved features remain untested or unfinished?** All approved
+    cost rows and six deterministic agent tools are implemented. A disposable
+    boot harness runs `groupauth admin` without weakening the normal shell's
+    group assignment. xv6 still has no user identities or protection for
+    trusted shell binaries.
 
-20. **What evidence supports the implementation?** The 2026-11-06 regression
-    run reported 24 PASS, 0 FAIL, 2 UNTESTED, including `usertests -q` on one
+20. **What evidence supports the implementation?** The 2026-11-10 regression
+    run reported 32 PASS, 0 FAIL, 0 UNTESTED, including `usertests -q` on one
     and three CPUs. A separate evaluation recorded 10 PASS scenario/CPU
-    combinations and 134 raw guest observations. Re-run the exact commands
-    in [`design.md`](design.md); a timeout is not a pass. These results cover
-    the implemented paths, not the planned cost hooks.
+    combinations and 134 raw guest observations. The crash suite passed in a
+    disposable copy. Re-run the commands in [`design.md`](design.md); a
+    timeout is not a pass.

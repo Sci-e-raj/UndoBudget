@@ -50,10 +50,12 @@ a gid other than 1, it must select its own gid before launching commands;
 otherwise the child assignment fails closed.
 
 Group 0 has a configured budget and **has no exemption in the charge
-function**. Unlink and positive regular-file writes are currently charged;
-the group table implements FAIL, BLOCK, lazy refill, and statistics. Console
-output and user exec are currently uncharged, including for group 0. The
-approved table, exact charging paths, and remaining enforcement work are in
+function**. Unlink, positive console and regular-file writes, user exec,
+create/truncate, mkdir, mknod, and link are charged. The group table
+implements FAIL, BLOCK, lazy refill, and statistics. The trusted shell can
+run `relay command` (or `relaybg command`) to pay for a selected workload's
+diagnostic console output while the child stays in its workload group. The
+approved table and exact charging paths are in
 [`design.md`](design.md).
 
 ## Trust boundary and verification
@@ -66,8 +68,10 @@ current protection boundary; protecting trusted binaries requires later work.
 No group is reclaimed during a boot. An exhausted zero-refill group cannot be
 reset by a workload.
 
-Build with `make -j2` and `make -j2 fs.img`, then `make qemu`. On a fresh boot,
-run `hello`, `groupauth`, `grouptest`, `forktest`, and `usertests -q`. To exercise
+Build with `make -j2` and, after preserving any personal image data,
+`make -j2 fs.img`, then `make qemu`. On a fresh boot, run `hello`,
+`groupauth`, `grouptest`, and `forktest`. Run `usertests -q` through
+`tests/regression.py`, which configures a large dedicated group. To exercise
 an independent group, reserve gid 15 for this test and run:
 
 ```text
@@ -84,8 +88,9 @@ The second `budget` command must be refused because gid 15 is already
 configured. `grouptest` itself never configures a slot; its `test` mode expects
 the shell to select reserved gid 15 first. The old administrator-only
 `groupauth admin` mode retains invalid-argument and concurrent
-first-configuration tests, using reserved gids 13 and 14. It needs a trusted
-bootstrap test harness and a fresh boot; the ordinary shell assigns workload
-group membership before exec and cannot run an administrator-mode test.
+first-configuration tests, using reserved gids 12, 13, and 14. The disposable
+`tests/admin_boot.py` harness runs it from a temporary copy of `init` before
+shell startup; the ordinary shell assigns workload membership before exec and
+cannot run an administrator-mode test.
 Workload-mode `groupauth` and `grouptest` can run repeatedly without consuming
 slots. See [`demo.md`](demo.md) for a fresh-boot presentation.

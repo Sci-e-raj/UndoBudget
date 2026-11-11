@@ -3,11 +3,12 @@
 #include "kernel/group.h"
 #include "user/user.h"
 
-#define INT_MAX 2147483647
-#define INT_MIN (-INT_MAX - 1)
+#define INT_MAX    2147483647
+#define INT_MIN    (-INT_MAX - 1)
+#define ZERO_GROUP (NGROUP - 4)
 #define TEST_GROUP (NGROUP - 3)
 #define RACE_GROUP (NGROUP - 2)
-#define RACERS 4
+#define RACERS     4
 
 static void
 check(int ok, char *message)
@@ -55,7 +56,8 @@ main(int argc, char **argv)
     exit(0);
   }
   if (argc == 2 && strcmp(argv[1], "selected") == 0) {
-    check(setgroup(0) == -1, "selected workload cannot enter administrator group");
+    check(setgroup(0) == -1,
+          "selected workload cannot enter administrator group");
     check(setgroup(1) == -1, "selected workload is not in default group");
     check(setgroup(NGROUP - 1) == 0, "selected workload is in reserved group");
     check(setbudget(2, 1, 0, BUDGET_FAIL) == -1,
@@ -82,24 +84,24 @@ main(int argc, char **argv)
         "expected no argument or admin");
 
   check(setgroup(-1) == -1 && setgroup(NGROUP) == -1 &&
-        setgroup(INT_MIN) == -1 && setgroup(INT_MAX) == -1,
+          setgroup(INT_MIN) == -1 && setgroup(INT_MAX) == -1,
         "invalid group IDs");
   check(setgroup(0) == 0, "same administrator group");
   check(setgroup(TEST_GROUP) == -1, "unconfigured group rejected");
   check(setbudget(-1, 1, 0, BUDGET_FAIL) == -1 &&
-        setbudget(NGROUP, 1, 0, BUDGET_FAIL) == -1 &&
-        setbudget(INT_MIN, 1, 0, BUDGET_FAIL) == -1 &&
-        setbudget(INT_MAX, 1, 0, BUDGET_FAIL) == -1,
+          setbudget(NGROUP, 1, 0, BUDGET_FAIL) == -1 &&
+          setbudget(INT_MIN, 1, 0, BUDGET_FAIL) == -1 &&
+          setbudget(INT_MAX, 1, 0, BUDGET_FAIL) == -1,
         "invalid budget group IDs");
   check(setbudget(TEST_GROUP, -1, 0, BUDGET_FAIL) == -1 &&
-        setbudget(TEST_GROUP, INT_MIN, 0, BUDGET_FAIL) == -1,
+          setbudget(TEST_GROUP, INT_MIN, 0, BUDGET_FAIL) == -1,
         "negative maximum");
   check(setbudget(TEST_GROUP, 1, -1, BUDGET_FAIL) == -1 &&
-        setbudget(TEST_GROUP, 1, INT_MIN, BUDGET_FAIL) == -1,
+          setbudget(TEST_GROUP, 1, INT_MIN, BUDGET_FAIL) == -1,
         "negative refill");
   check(setbudget(TEST_GROUP, 1, 0, -1) == -1 &&
-        setbudget(TEST_GROUP, 1, 0, BUDGET_BLOCK + 1) == -1 &&
-        setbudget(TEST_GROUP, 1, 0, INT_MAX) == -1,
+          setbudget(TEST_GROUP, 1, 0, BUDGET_BLOCK + 1) == -1 &&
+          setbudget(TEST_GROUP, 1, 0, INT_MAX) == -1,
         "invalid mode");
 
   check(setbudget(0, 100, 10, BUDGET_FAIL) == -1,
@@ -122,8 +124,14 @@ main(int argc, char **argv)
   check(wait(&bootstrap_status) == bootstrap && bootstrap_status == 0,
         "default workload exits");
 
-  check(setbudget(TEST_GROUP, 0, INT_MAX, BUDGET_BLOCK) == 0,
+  check(setbudget(ZERO_GROUP, 0, INT_MAX, BUDGET_BLOCK) == 0,
         "zero maximum and refill above maximum accepted");
+  check(setbudget(ZERO_GROUP, 1, 0, BUDGET_FAIL) == -1,
+        "zero-budget group cannot be reconfigured");
+  // The workload child needs four points to exec itself under the flat
+  // user-exec policy; use a separate slot from the zero-budget edge case.
+  check(setbudget(TEST_GROUP, 4, 0, BUDGET_FAIL) == 0,
+        "configure exec-inheritance group");
   check(setbudget(TEST_GROUP, 1, 0, BUDGET_FAIL) == -1,
         "duplicate configuration rejected");
 
@@ -137,8 +145,8 @@ main(int argc, char **argv)
       close(results[0]);
       char token;
       check(read(start[0], &token, 1) == 1, "race start");
-      char result = setbudget(RACE_GROUP, INT_MAX, INT_MAX, BUDGET_BLOCK) == 0
-                      ? '1' : '0';
+      char result =
+        setbudget(RACE_GROUP, INT_MAX, INT_MAX, BUDGET_BLOCK) == 0 ? '1' : '0';
       check(write(results[1], &result, 1) == 1, "race result");
       exit(0);
     }

@@ -8,7 +8,7 @@ from .validation import validate_request
 
 
 _SUPPORTED = frozenset({"list_files", "read_file", "delete_file",
-                        "get_budget_status"})
+                        "write_file", "execute_program", "get_budget_status"})
 _HEX = re.compile(r"(?:[0-9a-f]{2})*\Z")
 _STAT_FIELDS = ("gid", "configured", "remaining", "max",
                 "refill_per_100_ticks", "mode", "n_allowed", "n_blocked",
@@ -51,7 +51,7 @@ def _parse_success(tool, stdout, arguments):
         return {"files": [name.decode("latin-1") for name in names],
                 "files_hex": [name.hex() for name in names]}
 
-    if tool == "read_file":
+    if tool in ("read_file", "execute_program"):
         chunks = []
         for record in records:
             if not record.startswith("DATA|"):
@@ -65,12 +65,21 @@ def _parse_success(tool, stdout, arguments):
             result["content_utf8"] = content.decode("utf-8")
         except UnicodeDecodeError:
             pass
+        if tool == "execute_program":
+            return {"output_hex": result["content_hex"],
+                    "output_utf8": result.get("content_utf8"),
+                    "size": result["size"]}
         return result
 
     if tool == "delete_file":
         if records:
             raise _BadResult("delete returned unexpected data")
         return {"deleted": True}
+
+    if tool == "write_file":
+        if records:
+            raise _BadResult("write returned unexpected data")
+        return {"written": len(arguments["content"].encode("utf-8"))}
 
     if len(records) != 1 or not records[0].startswith("STAT|"):
         raise _BadResult("missing budget snapshot")

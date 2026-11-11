@@ -3,8 +3,8 @@
 #include "kernel/group.h"
 #include "user/user.h"
 
-#define INT_MAX 2147483647
-#define INT_MIN (-INT_MAX - 1)
+#define INT_MAX    2147483647
+#define INT_MIN    (-INT_MAX - 1)
 #define TEST_GROUP (NGROUP - 1) // Reserved for this test; configure from sh.
 
 static void
@@ -25,8 +25,7 @@ check_member(int gid)
   check(setgroup(0) == -1, "cannot return to administrator group");
   check(setgroup(gid) == 0, "current group preserved");
   check(setgroup(other) == -1, "cannot switch workload groups");
-  check(setbudget(gid, 100, 10, BUDGET_FAIL) == -1,
-        "cannot reset own group");
+  check(setbudget(gid, 100, 10, BUDGET_FAIL) == -1, "cannot reset own group");
   check(setbudget(other, 100, 10, BUDGET_FAIL) == -1,
         "cannot configure another workload group");
   check(setbudget(0, 100, 10, BUDGET_FAIL) == -1,
@@ -104,8 +103,7 @@ main(int argc, char **argv)
     check(pid >= 0, "concurrent fork");
     if (pid == 0) {
       for (int j = 0; j < 100; j++)
-        check(setbudget(gid, j, j + 1, j % 2) == -1,
-              "concurrent reset denied");
+        check(setbudget(gid, j, j + 1, j % 2) == -1, "concurrent reset denied");
       check_member(gid);
       exit(0);
     }

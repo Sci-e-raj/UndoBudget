@@ -1,5 +1,10 @@
 # UndoBudget: irreversibility budget for xv6 process groups
 
+> **Historical week-one snapshot.** The implementation has since added
+> charging, refill, BLOCK mode, inode creator ownership, statistics, and the
+> deterministic agent. For current behavior use [docs/design.md](docs/design.md)
+> for the current implementation and evidence.
+
 ## One-minute overview
 
 This CSL3030 project extends a course-provided xv6-riscv operating system.

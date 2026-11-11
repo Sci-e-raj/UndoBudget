@@ -16,7 +16,11 @@
 #include "file.h"
 #include "fcntl.h"
 
-#define UNLINK_COST 12
+#define UNLINK_COST    12
+#define CREATE_COST    4
+#define TRUNC_COST     10
+#define DIRECTORY_COST 6
+#define LINK_COST      3
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -129,6 +133,11 @@ sys_link(void)
   struct inode *dp, *ip;
 
   if (argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
+    return -1;
+
+  // The first effect below is the nlink update. Charge before beginning a
+  // transaction so a BLOCK wait holds no filesystem locks.
+  if (group_charge(LINK_COST) < 0)
     return -1;
 
   begin_op();
@@ -353,6 +362,13 @@ sys_open(void)
   if ((n = argstr(0, path, MAXPATH)) < 0)
     return -1;
 
+  // O_CREATE is charged per call, including an existing target. O_TRUNC adds
+  // its own cost; a failed call after this point is not refunded.
+  int cost = ((omode & O_CREATE) ? CREATE_COST : 0) +
+             ((omode & O_TRUNC) ? TRUNC_COST : 0);
+  if (group_charge(cost) < 0)
+    return -1;
+
   begin_op();
 
   if (omode & O_CREATE) {
@@ -415,8 +431,10 @@ sys_mkdir(void)
   char path[MAXPATH];
   struct inode *ip;
 
+  if (argstr(0, path, MAXPATH) < 0 || group_charge(DIRECTORY_COST) < 0)
+    return -1;
   begin_op();
-  if (argstr(0, path, MAXPATH) < 0 || (ip = create(path, T_DIR, 0, 0)) == 0) {
+  if ((ip = create(path, T_DIR, 0, 0)) == 0) {
     end_op();
     return -1;
   }
@@ -432,11 +450,12 @@ sys_mknod(void)
   char path[MAXPATH];
   int major, minor;
 
-  begin_op();
   argint(1, &major);
   argint(2, &minor);
-  if ((argstr(0, path, MAXPATH)) < 0 ||
-      (ip = create(path, T_DEVICE, major, minor)) == 0) {
+  if (argstr(0, path, MAXPATH) < 0 || group_charge(DIRECTORY_COST) < 0)
+    return -1;
+  begin_op();
+  if ((ip = create(path, T_DEVICE, major, minor)) == 0) {
     end_op();
     return -1;
   }
@@ -500,7 +519,7 @@ sys_exec(void)
       goto bad;
   }
 
-  int ret = kexec(path, argv);
+  int ret = kexec(path, argv, 1);
 
   for (i = 0; i < NELEM(argv) && argv[i] != 0; i++)
     kfree(argv[i]);

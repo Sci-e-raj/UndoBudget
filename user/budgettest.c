@@ -5,13 +5,13 @@
 #include "user/user.h"
 
 // Groups 2..7 are reserved for this suite. Configure them from the shell.
-#define GID_FIFTY 2
-#define GID_SHARED 3
-#define GID_FIRST 4
-#define GID_SECOND 5
-#define GID_RACE 6
+#define GID_FIFTY    2
+#define GID_SHARED   3
+#define GID_FIRST    4
+#define GID_SECOND   5
+#define GID_RACE     6
 #define GID_BOUNDARY 7
-#define RACERS 4
+#define RACERS       4
 
 static void
 check(int ok, char *message)
@@ -56,11 +56,11 @@ fifty(void)
   for (int i = 0; i < 6; i++)
     create(files[i]);
   for (int i = 0; i < 4; i++) {
-    check(unlink(files[i]) == 0, "one of four 12-unit unlinks");
+    check(unlink(files[i]) == 0, "one of four 12-unit unlinks after creation");
     check(!exists(files[i]), "permitted unlink removed its target");
   }
   for (int i = 4; i < 6; i++) {
-    check(unlink(files[i]) == -1, "budget exhausted after 48 units");
+    check(unlink(files[i]) == -1, "remaining 2 units cannot pay 12");
     check(exists(files[i]), "refused target survived");
   }
 }
@@ -156,14 +156,14 @@ boundary(void)
   check(setgroup(-1) == -1 && setgroup(NGROUP) == -1,
         "invalid group IDs rejected");
   check(setbudget(-1, 12, 0, BUDGET_FAIL) == -1 &&
-        setbudget(NGROUP, 12, 0, BUDGET_FAIL) == -1,
+          setbudget(NGROUP, 12, 0, BUDGET_FAIL) == -1,
         "invalid configuration group IDs rejected");
   check(setbudget(GID_BOUNDARY, -1, 0, BUDGET_FAIL) == -1 &&
-        setbudget(GID_BOUNDARY, 12, -1, BUDGET_FAIL) == -1 &&
-        setbudget(GID_BOUNDARY, 12, 0, -1) == -1,
+          setbudget(GID_BOUNDARY, 12, -1, BUDGET_FAIL) == -1 &&
+          setbudget(GID_BOUNDARY, 12, 0, -1) == -1,
         "invalid configuration values rejected");
   create("bbound");
-  check(unlink("bbound") == -1, "11 units cannot pay 12-unit cost");
+  check(unlink("bbound") == -1, "creation leaves 0 units for unlink");
   check(exists("bbound"), "underfunded target survived");
 }
 

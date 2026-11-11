@@ -2,8 +2,9 @@
 
 The bridge starts its own QEMU process with the Makefile's serial options.
 Callers supply a disk image; this module never builds or rewrites one. Each
-request is validated, then sent as one bounded shell line. The helper's UB1
-records are selected by a fresh transport token, never by command echo.
+request is validated, then sent as one bounded shell line. File content is
+sent later as paced hex data. The helper's UB1 records are selected by a
+fresh transport token, never by command echo.
 """
 
 import errno
@@ -29,7 +30,7 @@ _HEX = re.compile(rb"(?:[0-9a-f]{2})*")
 _STAT = re.compile(rb"[0-9]+(?:,[0-9]+){8}")
 _ERROR = re.compile(rb"[a-z][a-z0-9_]*")
 _SUPPORTED = frozenset({"list_files", "read_file", "delete_file",
-                        "get_budget_status"})
+                        "write_file", "execute_program", "get_budget_status"})
 
 
 class BridgeFailure(Exception):
@@ -109,6 +110,7 @@ class _FrameParser:
         self.status = None
         self.error = None
         self.total = 0
+        self.control = []
 
     def feed(self, data):
         self.total += len(data)
@@ -131,6 +133,8 @@ class _FrameParser:
                 if len(value) > 188 or _STAT.fullmatch(value) is None:
                     raise BridgeFailure("bad_frame", "invalid budget snapshot record")
                 self.stdout.append(record.decode("ascii"))
+            elif record in (b"READY|OK", b"ACK|OK"):
+                self.control.append(record)
             elif record == b"END|OK":
                 self.status = "ok"
             elif record.startswith(b"END|ERR|") and _ERROR.fullmatch(record[8:]):
@@ -249,19 +253,36 @@ class QemuBridge:
             self._sequence += 1
             token = f"{self._prefix}{self._sequence:x}"
             argument = (str(request["arguments"]["gid"])
-                        if tool == "get_budget_status"
-                        else request["arguments"]["path"])
-            command = f"agentop {token} {tool} {argument}"
+                        if tool == "get_budget_status" else
+                        request["arguments"]["program"]
+                        if tool == "execute_program" else
+                        request["arguments"]["path"])
+            command = f"relay agentop {token} {tool} {argument}"
             if len(command) > MAX_COMMAND:
                 return self._result(request_id, "validation_error",
                                     {"code": "command_too_long"}, "", started)
 
             parser = _FrameParser(token)
+            chunks = []
+            if tool == "write_file":
+                content = request["arguments"]["content"].encode("utf-8")
+                chunks = [content[i:i + 32].hex().encode("ascii") + b"\n"
+                          for i in range(0, len(content), 32)]
+            next_chunk = 0
             try:
                 self._start(deadline)
                 self._transport.write((command + "\n").encode("ascii"))
                 while parser.status is None:
                     parser.feed(self._read(deadline))
+                    while parser.control:
+                        control = parser.control.pop(0)
+                        if tool != "write_file" or (control == b"READY|OK") != (next_chunk == 0):
+                            raise BridgeFailure("bad_frame", "unexpected helper flow control")
+                        if next_chunk < len(chunks):
+                            self._transport.write(chunks[next_chunk])
+                            next_chunk += 1
+                        else:
+                            self._transport.write(b".\n")
                 # The END line precedes process exit; wait before reusing shell.
                 self._wait_prompt(deadline, b"\n" + parser.pending)
             except BridgeFailure as exc:

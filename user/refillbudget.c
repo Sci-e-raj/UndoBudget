@@ -2,7 +2,7 @@
 #include "kernel/fcntl.h"
 #include "user/user.h"
 
-// Run after: budget 8 12 12 fail; group 8
+// Run after: budget 8 24 12 fail; group 8
 static void
 check(int ok, char *message)
 {

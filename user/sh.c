@@ -215,8 +215,7 @@ main(void)
   // Read and run input commands.
   while (getcmd(buf, sizeof(buf)) >= 0) {
     int n = strlen(buf);
-    if (n == (int)sizeof(buf) - 1 && buf[n - 1] != '\n' &&
-        buf[n - 1] != '\r') {
+    if (n == (int)sizeof(buf) - 1 && buf[n - 1] != '\n' && buf[n - 1] != '\r') {
       char c;
       while (read(0, &c, 1) == 1 && c != '\n' && c != '\r')
         ;
@@ -287,6 +286,65 @@ main(void)
       }
       selected_gid = gid;
       printf("group: using %d\n", gid);
+    } else if (command_is(cmd, "relay") || command_is(cmd, "relaybg")) {
+      // Trusted shell forwards a selected workload's output. The child enters
+      // its group before parsing or exec; the group-0 parent pays console cost.
+      int background = command_is(cmd, "relaybg");
+      char *work = cmd + (background ? 7 : 5);
+      while (*work == ' ' || *work == '\t')
+        work++;
+      if (*work == 0 || *work == '\n') {
+        fprintf(2, "usage: relay command\n");
+        continue;
+      }
+      if (background && fork1() != 0)
+        continue;
+      int relaypipe[2];
+      if (pipe(relaypipe) < 0) {
+        fprintf(2, "relay: pipe failed\n");
+        if (background)
+          exit(1);
+        continue;
+      }
+      int pid = fork();
+      if (pid < 0) {
+        close(relaypipe[0]);
+        close(relaypipe[1]);
+        fprintf(2, "relay: fork failed\n");
+        if (background)
+          exit(1);
+        continue;
+      }
+      if (pid == 0) {
+        close(relaypipe[0]);
+        close(1);
+        dup(relaypipe[1]);
+        close(2);
+        dup(relaypipe[1]);
+        close(relaypipe[1]);
+        if (setgroup(selected_gid) < 0)
+          exit(1);
+        runcmd(parsecmd(work));
+      }
+      close(relaypipe[1]);
+      char output[128];
+      int nr;
+      while ((nr = read(relaypipe[0], output, sizeof(output))) > 0) {
+        int offset = 0;
+        while (offset < nr) {
+          int nw = write(1, output + offset, nr - offset);
+          if (nw <= 0)
+            break;
+          offset += nw;
+        }
+      }
+      close(relaypipe[0]);
+      int status, wpid;
+      do {
+        wpid = wait(&status);
+      } while (wpid >= 0 && wpid != pid);
+      if (background)
+        exit(0);
     } else {
       if (fork1() == 0) {
         // Before parsing, redirection, nested forks, or workload exec.

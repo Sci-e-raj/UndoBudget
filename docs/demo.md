@@ -4,9 +4,9 @@ Use a **fresh image**: `setbudget` is one-time per group per boot, and these
 tests create fixed filenames. The commands below use gids 3, 4, 5, and 12 on
 one boot; do not first run other tests that reserve them. This script shows
 implemented behavior only. For a shorter presentation, prebuild the image
-before the audience arrives. The 21 xv6 commands below passed in sequence on
-a fresh CPUS=1 scratch image on 2026-11-06; the host invalid-path example was
-also checked separately.
+before the audience arrives. The 26 xv6 commands below passed in sequence on
+a fresh CPUS=1 scratch image on 2026-11-10. The host invalid-path example is
+covered separately by the Python validator tests.
 
 ## 1. Boot a scratch image (host terminal A)
 
@@ -32,42 +32,49 @@ The shell prompt proves that `init` configured group 0 and group 1 before
 launch. At the xv6 prompt:
 
 ```text
-budgetstat
+relay budgetstat
 ```
 
-Point to group 0 (`10000/10000`, BLOCK) and group 1 (`1000/1000`, FAIL).
-Group 0 is trusted for configuration, but its charge function has no
-administrator exemption. Console output and user exec are not charged yet.
+Point to group 0 (maximum 10000, BLOCK) and group 1 (maximum 1000, FAIL;
+the relay child spends four exec points before its snapshot).
+Group 0 is trusted for configuration and pays for its own console output.
+`relay` sends the selected workload's output through the trusted shell, so
+the workload can report a refusal after exhausting its own budget. The
+workload still enters its selected group before exec or filesystem effects.
 
 ## 2. Configure, inherit, and refuse (xv6 prompt)
 
 ```text
-budget 3 12 0 fail
+budget 3 28 0 fail
 group 3
-budgettest shared
-budgetstat
+relay budgettest shared
+group 1
+relay budgetstat
 ```
 
-Expected: `budgettest: PASS shared`. The forked child removes `bsc` for 12
-units. The parent shares the same gid and balance, so its attempt to delete
+Expected: `budgettest: PASS shared`. Two file creations spend 8 units; the
+forked child removes `bsc` for 12 units. The parent shares the balance, so its attempt to delete
 `bsp` is refused; the test checks that `bsp` survives. The group-3 row shows
-remaining 0, allowed 1, refused 1. `budget` and `group` are shell built-ins;
+remaining 4, allowed 4 (including exec), refused 1. `budget` and `group` are shell built-ins;
 the shell itself stays in group 0, while ordinary children enter group 3.
 
 ## 3. BLOCK, refill, and snapshot (xv6 prompt)
 
 ```text
-budget 12 12 12 block
+budget 12 24 12 block
 group 12
-blockrefill
-budgetstat
+relay blockrefill
+group 1
+relay budgetstat
 ```
 
 Expected: `blockrefill: PASS (<ticks> ticks)`. The program performs five
 same-group one-byte writes and one unlink; it waits as needed for full
 100-tick refills. Its final checks prove that the writes and unlink took
-effect. The group-12 row shows six allowed charges, at least one blocked wait
-registration, no refusals, and remaining 0. `n_blocked` can be much larger
+effect. The group-12 row shows nine allowed charges (including exec and two fixture
+creations), at least one blocked wait
+registration, and no refusals. The remaining balance depends on refill timing.
+`n_blocked` can be much larger
 than the number of calls because the timer can wake and re-register a waiter
 on successive ticks. `budgetstat` reads stored lazy-refill state; it does not
 itself refill the group.
@@ -78,9 +85,10 @@ Return the shell's selected workload to exhausted group 3:
 
 ```text
 group 3
-agentop demo-fail delete_file bsp
+relay agentop demo-fail delete_file bsp
+group 1
 ls bsp
-budgetstat
+relay budgetstat
 ```
 
 The helper should emit `UB1|demo-fail|END|ERR|unlink_failed_budget_possible`.
@@ -110,19 +118,22 @@ after the live session. It prints a JSON report path and must report PASS.
 ## 5. Show two independent groups (back at xv6 prompt)
 
 ```text
-budget 4 12 0 fail
-budget 5 12 0 fail
+budget 4 24 0 fail
+budget 5 24 0 fail
 group 4
-budgettest first
-budgetstat
+relay budgettest first
+group 1
+relay budgetstat
 group 5
-budgettest second
-budgetstat
+relay budgettest second
+group 1
+relay budgetstat
 ```
 
-Each test prints `budgettest: PASS <mode>`. After group 4 spends its 12 units,
-the first snapshot still shows group 5 with 12 untouched units. Group 5 then
-spends its own 12 units. Both tests verify that a second deletion is refused
+Each test prints `budgettest: PASS <mode>`. After group 4 spends 8 units on
+fixtures and 12 on a deletion, the first snapshot still shows group 5 with
+24 untouched units. Group 5 then spends its own allowance. Both tests verify
+that a second deletion is refused
 and its target survives. The shell's `group` selection does **not** transfer
 or reset a balance. Exit QEMU with `Ctrl-a x`.
 

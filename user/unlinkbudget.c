@@ -3,7 +3,7 @@
 #include "kernel/fcntl.h"
 #include "user/user.h"
 
-// Run on a fresh boot after: budget 11 12 0 fail; group 11
+// Run on a fresh boot after: budget 11 34 0 fail; group 11
 #define TEST_GID (NGROUP - 5)
 
 static void
@@ -34,7 +34,7 @@ main(void)
   check(mkdir("ub_dir") == 0, "create directory");
   create_file("ub_dir/child");
 
-  // Neither failure should consume the only 12 units.
+  // Fixtures cost 18; neither invalid deletion should consume the final 12.
   check(unlink("ub_missing") == -1, "missing target rejected");
   check(unlink("ub_dir") == -1, "nonempty directory rejected");
   check(unlink("ub_ok") == 0, "permitted unlink");

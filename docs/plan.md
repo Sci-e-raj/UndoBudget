@@ -68,8 +68,8 @@ matching `mkfs` image format.
   one-time configuration, and one-way workload membership.
 - [x] Add `grouptest` for workload argument validation and fork/exec
   membership; add `groupauth` workload checks. Its administrator-only mode
-  contains a concurrent first-configuration test but needs trusted boot
-  execution to run.
+  contains a concurrent first-configuration test and runs in the disposable
+  `tests/admin_boot.py` trusted boot harness.
 - [x] Build and run `hello`, `grouptest`, `forktest`, and `usertests -q` after
   configuration changes; all passed with the default three QEMU CPUs.
 - [x] Add group-locked atomic charging, bounded 100-tick lazy refill, FAIL and
@@ -77,8 +77,11 @@ matching `mkfs` image format.
 - [x] Persist creator gid in disk and memory inodes; rebuild images with the
   new magic and `mkfs` layout.
 - [x] Enforce approved unlink and creator-aware regular-file write costs.
+- [x] Enforce create, truncate, mkdir, mknod, and link costs before filesystem
+  transactions, with exact-cost and refusal-survival tests.
 - [x] Add the deterministic Python validator, serial bridge, xv6 helper,
   executor, and focused regression and evaluation scripts.
-- [ ] Enforce approved console, create/truncate, mkdir/mknod, link, and flat
-  user-exec costs. `write_file` and `execute_program` remain unsupported by
-  the end-to-end agent.
+- [x] Enforce approved console and flat user-exec costs; support all six
+  deterministic agent tools end to end with framed guest results.
+- [x] Increase new-image capacity to 4000 blocks so the bundled programs
+  leave room for `usertests`' `writebig` case; preserve existing `fs.img`.

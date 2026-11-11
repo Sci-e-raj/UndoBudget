@@ -12,9 +12,9 @@
 
 // Per-100-tick refills. The administrator must remain usable when charged;
 // the default workload gets a smaller allowance and fails when exhausted.
-#define ADMIN_MAX 10000
-#define ADMIN_REFILL 1000
-#define DEFAULT_MAX 1000
+#define ADMIN_MAX      10000
+#define ADMIN_REFILL   1000
+#define DEFAULT_MAX    1000
 #define DEFAULT_REFILL 100
 
 char *argv[] = {"sh", 0};

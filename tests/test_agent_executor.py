@@ -67,17 +67,21 @@ class ExecutorTests(unittest.TestCase):
                 self.assertEqual(result["status"], "protocol_error")
                 self.assertFalse(result["verified_guest"])
 
-    def test_invalid_and_unimplemented_never_reach_guest(self):
+    def test_write_and_execute_require_guest_success(self):
+        bridge = MockBridge()
+        result = execute_request(request("write_file", {"path": "note", "content": "hi"}), bridge)
+        self.assertEqual(result["data"], {"written": 2})
+        self.assertTrue(result["verified_guest"])
+        bridge = MockBridge(stdout="DATA|6869")
+        result = execute_request(request("execute_program", {"program": "hello"}), bridge)
+        self.assertEqual(result["data"]["output_utf8"], "hi")
+        self.assertTrue(result["verified_guest"])
+
+    def test_invalid_never_reaches_guest(self):
         bridge = MockBridge()
         invalid = execute_request(request("read_file", {"path": "../secret"}), bridge)
         self.assertEqual(invalid["status"], "validation_error")
         self.assertFalse(invalid["verified_guest"])
-        for tool, arguments in (("write_file", {"path": "note", "content": "hi"}),
-                                ("execute_program", {"program": "hello"})):
-            with self.subTest(tool=tool):
-                result = execute_request(request(tool, arguments), bridge)
-                self.assertEqual(result["status"], "unsupported")
-                self.assertFalse(result["verified_guest"])
         self.assertEqual(bridge.calls, [])
 
     def test_console_text_or_transport_failure_cannot_claim_success(self):

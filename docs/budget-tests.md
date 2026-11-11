@@ -21,34 +21,35 @@ make qemu CPUS=1
 At the xv6 shell, run:
 
 ```text
-budget 2 50 0 fail
-budget 3 12 0 fail
-budget 4 12 0 fail
-budget 5 12 0 fail
-budget 6 12 0 fail
-budget 7 11 0 fail
+budget 2 78 0 fail
+budget 3 24 0 fail
+budget 4 24 0 fail
+budget 5 24 0 fail
+budget 6 32 0 fail
+budget 7 8 0 fail
 group 2
-budgettest fifty
+relay budgettest fifty
 group 3
-budgettest shared
+relay budgettest shared
 group 4
-budgettest first
+relay budgettest first
 group 5
-budgettest second
+relay budgettest second
 group 6
-budgettest race
+relay budgettest race
 group 7
-budgettest boundary
+relay budgettest boundary
 ```
 
-Each mode must print `budgettest: PASS <mode>`. `fifty` creates all six files
-before deletion, admits four calls (48 units), and verifies that the next two
-files survive refusal. `shared` has a child spend the only 12 units and checks
+Each mode must print `budgettest: PASS <mode>`. `fifty` spends 24 units creating
+six files, admits four deletions (48 units), and verifies that the next two
+files survive refusal. Each workload first spends four units on exec.
+`shared` has a child spend the 12 units left after two creations and checks
 that the parent's target survives. `first` exhausts gid 4, then `second`
-proves gid 5 still has its own 12 units. `race` releases four forked children
+proves gid 5 still has its own 24 units. `race` releases four forked children
 together: exactly one deletion must succeed and three files must survive on
 both one and three CPUs. `boundary` checks invalid group/configuration
-arguments and proves that 11 units cannot pay a 12-unit unlink cost.
+arguments and proves that exec plus the 4-unit creation leaves no points for unlink.
 
 `group_charge(long cost)` is a kernel-only function, so an xv6 user program
 cannot supply a negative raw charge cost. The `boundary` mode covers the
@@ -70,21 +71,23 @@ For an xv6 refill smoke test, use a fresh/disposable image and `CPUS=3`, then
 run these separate shell commands:
 
 ```text
-budget 8 12 12 fail
+budget 8 24 12 fail
 group 8
-refillbudget
+relay refillbudget
 budget 8 1 1 fail
-budget 6 12 0 fail
+budget 6 32 0 fail
 group 6
-budgettest race
+relay budgettest race
 ```
 
-`refillbudget` waits at least 105 ticks after spending its initial 12 units;
+`refillbudget` waits at least 105 ticks after spending 8 on fixtures and 12
+on its first unlink;
 it checks that a later unlink succeeds without asserting an exact scheduler
 tick. The second `budget 8` command must be refused. `budgettest race` releases
 four children together on three CPUs; exactly one can spend a 12-unit balance.
 Preserve any irreplaceable `fs.img` before intentionally forcing a rebuild;
 `make -B fs.img` overwrites it. The other `budgettest` groups use zero refill
 and FAIL mode. The current tree also charges positive regular-file writes,
-but console, create/truncate, link, directory operations, and user exec are
-still outside enforcement; see [`design.md`](design.md).
+as well as creation, truncation, link, mkdir, mknod, console writes, and user
+exec. Low-budget diagnostics should use the trusted shell's `relay` command;
+see [`design.md`](design.md).

@@ -43,7 +43,7 @@ member(int gid)
 static void
 refill(void)
 {
-  member(2); // max=3, refill=3
+  member(2); // max=8, refill=3; exec and creation spend 4 each
   int fd = create("bs2w");
   uint start = (uint)uptime();
   for (int i = 0; i < 3; i++)
@@ -53,7 +53,8 @@ refill(void)
   fd = open("bs2w", O_RDONLY);
   char data[3];
   check(fd >= 0 && read(fd, data, sizeof(data)) == sizeof(data) &&
-        memcmp(data, "abc", sizeof(data)) == 0, "all writes persisted");
+          memcmp(data, "abc", sizeof(data)) == 0,
+        "all writes persisted");
   close(fd);
   printf("blockstress: PASS refill\n");
 }
@@ -61,7 +62,7 @@ refill(void)
 static void
 contend(void)
 {
-  member(3); // max=12, refill=12
+  member(3); // max=20, refill=12; exec and four creations spend 20
   char *paths[] = {"bs3a", "bs3b", "bs3c", "bs3d"};
   for (int i = 0; i < 4; i++)
     close(create(paths[i]));
@@ -91,7 +92,7 @@ contend(void)
 static void
 insufficient(void)
 {
-  member(4); // max=12, refill=3
+  member(4); // max=24, refill=3; exec and two creations spend 12
   close(create("bs4a"));
   close(create("bs4b"));
   uint start = (uint)uptime();
@@ -112,7 +113,7 @@ insufficient(void)
 static void
 zero(void)
 {
-  member(5); // max=12, refill=0
+  member(5); // max=24, refill=0
   close(create("bs5a"));
   close(create("bs5b"));
   check(unlink("bs5a") == 0, "exhaust initial balance");
@@ -126,7 +127,7 @@ zero(void)
 static void
 killed_waiter(void)
 {
-  member(6); // max=12, refill=1
+  member(6); // max=24, refill=1
   close(create("bs6a"));
   close(create("bs6b"));
   check(unlink("bs6a") == 0, "exhaust initial balance");
@@ -156,7 +157,7 @@ killed_waiter(void)
 static void
 reconfigure(void)
 {
-  member(7); // shell configured max=12, refill=0, mode=BLOCK once
+  member(7); // shell configured max=24, refill=0, mode=BLOCK once
   check(setbudget(7, 120, 120, BUDGET_BLOCK) == -1,
         "workload cannot reconfigure group");
   close(create("bs7a"));
@@ -171,7 +172,7 @@ reconfigure(void)
 static void
 independent(int gid)
 {
-  member(gid); // groups 8 and 9: max=3, refill=3
+  member(gid); // groups 8 and 9: max=12, refill=3; exec and creations spend 12
   char *own = gid == 8 ? "bs8w" : "bs9w";
   char *marker = gid == 8 ? "bs8ready" : "bs9ready";
   char *other = gid == 8 ? "bs9ready" : "bs8ready";
@@ -195,8 +196,8 @@ independent(int gid)
   check(elapsed >= 100 && elapsed < 350,
         "independent groups each refill their own balance");
   // One console write keeps the two background jobs' completion lines intact.
-  char *done = gid == 8 ? "blockstress: PASS independent 8\n" :
-                          "blockstress: PASS independent 9\n";
+  char *done = gid == 8 ? "blockstress: PASS independent 8\n"
+                        : "blockstress: PASS independent 9\n";
   check(write(1, done, strlen(done)) == strlen(done), "report completion");
 }
 

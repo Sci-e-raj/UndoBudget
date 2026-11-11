@@ -57,31 +57,37 @@ in the kernel.
 positive-cost call is charged once before its first irreversible effect. The
 charge is retained after a later failure or partial file write; there are no
 refunds. Zero-cost operations do not change counters. The kernel currently
-charges only the rows marked **enforced**.
+charges every positive-cost row below.
 
 | Operation | Approved cost | Unit and condition | Status |
 | --- | ---: | --- | --- |
 | `unlink` | 12 | Per validated deletion call | **Enforced** |
-| Console write | `2 + ceil(n/128)` | Per call, `n > 0` | Planned; console currently uncharged |
+| Console write | `2 + ceil(n/128)` | Per call, `n > 0` | **Enforced** |
 | Same creator-group regular-file write | `2 + ceil(n/1024)` | Per call, `n > 0` | **Enforced** |
 | Cross creator-group regular-file write | `6 + 2 × ceil(n/1024)` | Per call, `n > 0` | **Enforced** |
-| `open(O_CREATE)` | 4 | Per call | Planned |
-| `open(O_TRUNC)` | 10 | Per call | Planned |
-| `open(O_CREATE\|O_TRUNC)` | 14 | One additive charge for both flags | Planned |
-| `mkdir`, `mknod` | 6 | Per call | Planned |
-| `link` | 3 | Per call | Planned |
-| User `exec` | 4 | Per call, independent of creator gid | Planned; no exec charge now |
+| `open(O_CREATE)` | 4 | Per call | **Enforced** |
+| `open(O_TRUNC)` | 10 | Per call | **Enforced** |
+| `open(O_CREATE\|O_TRUNC)` | 14 | One additive charge for both flags | **Enforced** |
+| `mkdir`, `mknod` | 6 | Per call | **Enforced** |
+| `link` | 3 | Per call | **Enforced** |
+| User `exec` | 4 | Per call, independent of creator gid | **Enforced** |
 | Unlisted operations | 0 | No charge under this policy | Current/default |
 
 `sys_open` follows `create()` when `O_CREATE` is set and also calls `itrunc()`
-for a regular inode when `O_TRUNC` is set. Both flags therefore reach the two
-respective effects in this tree; their approved combined cost is **14**, but
-neither flag is currently charged. Boot's kernel `kexec("/init",...)` is not a
-user exec. Console and exec charging were deferred while the BLOCK path was
-being completed; their entries above remain design requirements, not test
-results. Pipe and device writes are not charged by the current `filewrite`
-path. In particular, group-0 shell output is currently free because console
-charging has not been hooked, rather than because group 0 is exempt.
+for a regular inode when `O_TRUNC` is set. Both flags cost **14** together.
+`sys_open`, `sys_mkdir`, `sys_mknod`, and `sys_link` copy their user path
+arguments before charging, then charge outside filesystem locks and the log
+transaction. A valid path string that later fails lookup or another filesystem
+step retains the charge. `O_CREATE` costs 4 even when its target already
+exists; `O_TRUNC` costs 10 when the flag is present, even if no truncation
+occurs. These are per-call flag prices. A refused charge returns before any
+create, truncate, directory update, or link-count update. Boot's kernel
+`kexec("/init",...)` is the boot-only image load before budgets exist. User
+`exec` charges after ELF and argument validation, after releasing inode and
+log locks, and immediately before image commit. Refusal leaves the old image
+and gid intact. `filewrite` charges console device writes before the driver;
+pipe writes and other device writes are free. Group-0 output spends its own
+configured budget.
 
 `sys_unlink` copies the user path and checks the parent, target, `.`/`..`, and
 nonempty-directory rules first. Missing targets and invalid directories are
@@ -168,19 +174,24 @@ There is no LLM or arbitrary shell-command execution. The Python validator
 accepts a strict JSON envelope (`request_id`, `tool`, `arguments`), rejects
 duplicate/unknown fields, invalid types, absolute or parent-traversal paths,
 components longer than xv6's 14-character directory limit, oversized data,
-and nonallowlisted program names. It recognizes six tool names, but only
-`list_files`, `read_file`, `delete_file`, and `get_budget_status` are supported
-end to end. `write_file` and `execute_program` return **unsupported** without
-running in the guest.
+and nonallowlisted program names. All six allowlisted tools run end to end.
+`execute_program` permits only `hello`, `ls`, and `budgetstat`. `write_file`
+accepts at most 4096 UTF-8 bytes and opens with create and truncate flags,
+so it pays 14 for open plus the creator-aware write cost for nonempty data.
+A later write failure can leave a truncated or partially written file.
 
 `QemuBridge` owns a QEMU serial session, serializes requests, and sends one
-bounded `agentop TOKEN TOOL ARG` command per validated operation. The xv6
+bounded `relay agentop TOKEN TOOL ARG` command per validated operation. The xv6
 helper changes to `/`, validates again, performs one operation, and emits
 `UB1|TOKEN|...` records with hex-encoded data plus an `END|OK` or
 `END|ERR|code`. The bridge ignores command echo and unrelated text, requires
 the matching token and terminal record, and waits for the shell prompt before
 another request. The executor verifies response shape and parses directory,
-file, or budget data before returning `verified_guest=True`. A timeout,
+file, program output, or budget data before returning `verified_guest=True`.
+For `write_file`, READY/ACK records pace bounded hex data sent over serial;
+file content never enters a shell command. The trusted group-0 relay pays
+console costs for framed output while the helper stays in the selected
+workload group. A timeout,
 broken pipe, bad frame, or unexpected QEMU exit does **not** become success.
 An active serial timeout invalidates the session because the effect may be
 unknown; a queued request that times out before being sent leaves the active
@@ -202,35 +213,38 @@ python3 experiments/collect.py --cpus 1 3 --output /tmp/undobudget-demo-data
 python3 experiments/plot.py /tmp/undobudget-demo-data
 ```
 
+`kernel/param.h` sets `FSSIZE=4000`: the added guest programs left too few
+free blocks in a 2000-block image for xv6's `writebig` regression. The
+scratch-image harnesses build 4000-block images; an existing repository
+`fs.img` is not resized in place. Back it up before choosing to rebuild it.
+
 `tests/regression.py` runs boot authorization, fork/exec inheritance,
 FAIL/shared/racing deductions, write ownership, refill, snapshots, BLOCK
 waiters, creator persistence/reuse, `usertests -q`, and agent end-to-end cases
-on separate scratch images. Its JSON report path and per-suite PASS/FAIL are
+on separate scratch images. The administrator branch runs through
+`tests/admin_boot.py`, which changes only a copied `init` for one boot. Its
+JSON report path and per-suite PASS/FAIL are
 printed; a timeout is a failure. The host charge test checks exact refill
 boundaries and overflow. `tests/agent_budget_e2e.py` emits a JSON request
 trace with original JSON, validated arguments, guest operation, kernel result,
 budget snapshot, elapsed time, and agent-visible result. `tests/agent_smoke.py`
-checks the four supported tools. `experiments/collect.py` retains raw serial
+checks all six allowlisted tools. `experiments/collect.py` retains raw serial
 logs and CSV observations, and the plotter reads only PASS runs. See
 [`demo.md`](demo.md) for a short live sequence and
 [`budget-tests.md`](budget-tests.md) for focused FAIL commands.
 
-On **2026-11-06**, the current `tests/regression.py` completed with **24 PASS,
-0 FAIL, 2 UNTESTED**. The generated report was
-`/tmp/undobudget-regression-i16614ez.json` in that test environment; `/tmp`
-is temporary, so rerun to retain a report locally. The untested entries are
-trusted administrator-mode `groupauth admin` (ordinary shell children cannot
-run as group 0) and ownership-dependent exec cost (not assigned; flat exec
-cost 4 remains unenforced). The separate evaluation run completed **10 PASS,
-0 FAIL** across five scenarios on CPUS=1/3, yielding **134** guest
-observations and four CSV-derived figures. Its temporary result directory was
-`/tmp/undobudget-evaluation-20261106T065217Z/`; the commands above regenerate
-it. These are observations of the current code, not claims about planned
-charging hooks.
+On **2026-11-10**, `tests/regression.py` completed with **32 PASS, 0 FAIL,
+0 UNTESTED** on CPU counts 1 and 3; the report was
+`/tmp/undobudget-regression-5t6on_23.json`. The administrator-mode test ran
+through the disposable boot harness. `experiments/collect.py` completed **10 PASS, 0 FAIL**
+across five scenarios and two CPU counts, with **134** guest observations.
+The CSV, raw serial logs, and four SVG figures are under
+`/tmp/undobudget-evaluation-complete/`. These `/tmp` paths are temporary;
+rerun the commands above to reproduce the evidence. In a disposable copy,
+the CI-style full `./test-xv6.py usertests` printed `ALL TESTS PASSED`, and
+`./test-xv6.py crash` passed log and orphan recovery.
 
-The known scope limits are material: only unlink and positive regular-file
-writes currently consume budget; approved create/truncate, link, directory,
-console, and user-exec costs do not. Unix user identities, filesystem
+The known scope limits are material: Unix user identities, filesystem
 permissions, and protection for administrator binaries are absent. The
 group-0 shell and its operator are trusted; a deliberately run group-0
 program has administrator authority. A workload able to modify trusted

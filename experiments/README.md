@@ -27,20 +27,18 @@ excluded from the figures. Unselected or unavailable runs are marked `MISSING`.
 
 | Scenario | Group setup | Measured behavior |
 | --- | --- | --- |
-| `fail` | gid 2, max 48, refill 0, FAIL | Six deletion attempts; four succeed, then completed count plateaus while two targets survive. |
-| `block` | gid 3, max 12, refill 12 per 100 ticks, BLOCK | A child deletes four targets; the parent samples file absence and budget every 10 ticks while charges wait for refill. |
-| `shared` | gid 4, max 24, refill 0, FAIL | A forked child and parent each delete once; the parent's third attempt is refused. |
-| `race` | gid 5, max 48, refill 0, FAIL | Eight barrier-released child processes contend for four affordable deletions. |
-| `independent` | gids 6 and 7, max 12 and 24, refill 0, FAIL | Two background jobs wait for each other's ready marker, then spend their separate balances. |
+| `fail` | gid 2, max 76, refill 0, FAIL | Exec spends 4, six fixtures cost 24, four deletions spend the remaining 48, then two targets survive. |
+| `block` | gid 3, max 32, refill 12 per 100 ticks, BLOCK | Four fixtures cost 16; a child deletes four targets while the parent samples refill waits. |
+| `shared` | gid 4, max 40, refill 0, FAIL | Three fixtures cost 12; a child and parent each delete once, then the third attempt is refused. |
+| `race` | gid 5, max 84, refill 0, FAIL | Eight fixtures cost 32; eight contenders compete for four affordable deletions. |
+| `independent` | gids 6 and 7, max 36 and 44, refill 0, FAIL | Four fixtures cost 16 in each group; gid 6 reserves 4 for a completion marker. |
 
 These maxima are **experiment settings**, not operation costs. The enforced
-`unlink` cost in this tree is 12 units. `open(O_CREATE)` is in the approved
-policy but is not yet charged by this kernel, so creating fixtures currently
-does not spend budget. Console writes are also currently uncharged, so emitting
-measurements does not change the tested group balance. The collector checks
-each group's initial balance and counters; if future checkpoints change
-charging, the run fails visibly instead of quietly treating a different
-starting budget as comparable data.
+`unlink` cost is 12 units and `open(O_CREATE)` costs 4 per call. Fixture
+creations are included in the group maxima; each start snapshot verifies the
+resulting balance and allowed counter, including the workload's 4-unit exec.
+The trusted shell's `relay` and `relaybg` modes pay for console output from
+group 0; the workload writes each measurement to a pipe at zero cost.
 
 `observations.csv` records `tick` and `elapsed_ticks` in xv6 timer units. The
 elapsed value is the unsigned 32-bit difference from that group's `start`

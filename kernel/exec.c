@@ -25,7 +25,7 @@ flags2perm(int flags)
 // the implementation of the exec() system call
 //
 int
-kexec(char *path, char **argv)
+kexec(char *path, char **argv, int charge_user_exec)
 {
   char *s, *last;
   int i, off;
@@ -116,6 +116,11 @@ kexec(char *path, char **argv)
     goto bad;
   if (copyout(pagetable, sz, sp, (char *)ustack, (argc + 1) * sizeof(uint64)) <
       0)
+    goto bad;
+
+  // The old image remains intact. All inode and log locks are released, so
+  // BLOCK mode may sleep here. A refusal frees only the uncommitted image.
+  if (charge_user_exec && group_charge(4) < 0)
     goto bad;
 
   // a0 and a1 contain arguments to user main(argc, argv)

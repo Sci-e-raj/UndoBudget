@@ -64,7 +64,12 @@ The default make target builds only the kernel. Tests that require one-time
 group configuration or unused filenames should use a fresh, disposable image;
 tests/regression.py and experiments/collect.py create scratch images without
 replacing the repository's fs.img. Python agent tools are deterministic and
-support only list_files, read_file, delete_file, and get_budget_status end to
-end. Their write_file and execute_program requests are validated but are not
-implemented by the guest executor. The approved cost table includes operations
-that are not yet charged; see docs/design.md before claiming full coverage.
+support all six allowlisted requests end to end. The trusted group-0 shell's
+`relay` command pays for a selected workload's diagnostic console output;
+the workload still runs in its nonzero group. See docs/design.md for costs
+and trust limits.
+
+`FSSIZE` is 4000 blocks so the bundled test programs leave enough space for
+xv6's `writebig` test. An older existing `fs.img` retains its original size;
+the scratch-image test harnesses use the current `mkfs` capacity. Preserve
+any personal data in `fs.img` before deliberately rebuilding it.

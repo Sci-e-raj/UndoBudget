@@ -94,13 +94,13 @@ class Guest:
 
 def exercise_independent(guest):
     for gid in (8, 9):
-        guest.command(f"budget {gid} 3 3 block",
+        guest.command(f"budget {gid} 12 3 block",
                       rf"budget: group {gid} configured")
     guest.command("group 8", r"group: using 8")
-    guest.command("blockstress independent 8 &",
+    guest.command("relaybg blockstress independent 8",
                   r"blockstress: READY independent 8")
     guest.command("group 9", r"group: using 9")
-    guest.command("blockstress independent 9 &",
+    guest.command("relaybg blockstress independent 9",
                   r"blockstress: READY independent 9")
     passed = set()
     deadline = time.monotonic() + 50
@@ -113,12 +113,12 @@ def exercise_independent(guest):
 def exercise(guest):
     guest.expect(r"\$ ", 20)
     cases = [
-        (2, "3 3 block", "refill", 45),
-        (3, "12 12 block", "contend", 75),
-        (4, "12 3 block", "insufficient", 85),
-        (5, "12 0 block", "zero", 15),
-        (6, "12 1 block", "killed", 20),
-        (7, "12 0 block", "reconfigure", 30),
+        (2, "8 3 block", "refill", 45),
+        (3, "20 12 block", "contend", 75),
+        (4, "24 3 block", "insufficient", 85),
+        (5, "24 0 block", "zero", 15),
+        (6, "24 1 block", "killed", 20),
+        (7, "24 0 block", "reconfigure", 30),
     ]
     for gid, budget, mode, timeout in cases:
         guest.command(f"budget {gid} {budget}",
@@ -127,7 +127,7 @@ def exercise(guest):
             guest.command("budget 7 120 120 block",
                           r"budget: group 7 could not be configured")
         guest.command(f"group {gid}", rf"group: using {gid}")
-        guest.command(f"blockstress {mode}",
+        guest.command(f"relay blockstress {mode}",
                       rf"blockstress: PASS {mode}", timeout)
     exercise_independent(guest)
 

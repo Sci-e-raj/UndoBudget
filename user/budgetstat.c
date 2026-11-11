@@ -4,8 +4,8 @@
 #include "kernel/group.h"
 #include "user/user.h"
 
-// Fresh boot: budget 12 12 0 fail; group 12; budgetstat race
-// Then:       budget 13 3 3 block; group 13; budgetstat block
+// Fresh boot: budget 12 40 0 fail; group 12; budgetstat race
+// Then:       budget 13 11 3 block; group 13; budgetstat block
 static void
 print_text(char *value, int width)
 {
@@ -49,8 +49,9 @@ table(void)
       fprintf(2, "budgetstat: snapshot of group %d failed\n", gid);
       exit(1);
     }
-    char *mode = state.mode == BUDGET_FAIL ? "FAIL" :
-                 state.mode == BUDGET_BLOCK ? "BLOCK" : "?";
+    char *mode = state.mode == BUDGET_FAIL    ? "FAIL"
+                 : state.mode == BUDGET_BLOCK ? "BLOCK"
+                                              : "?";
     print_number(state.gid, 2);
     printf("  ");
     print_text(state.configured ? "yes" : "no", 3);
@@ -71,7 +72,8 @@ table(void)
     printf("\n");
   }
   printf("Balances are stored snapshots; lazy refill occurs on charge.\n");
-  printf("ALLOWED=charges; BLOCKED=wait registrations; REFUSED=charge refusals.\n");
+  printf(
+    "ALLOWED=charges; BLOCKED=wait registrations; REFUSED=charge refusals.\n");
 }
 
 static void
@@ -98,35 +100,36 @@ race(void)
   check(setgroup(0) == -1 && setgroup(12) == 0, "selected group 12");
   struct budget_snapshot before, now;
   check(budgetstat(12, &before) == 0, "initial snapshot");
-  check(before.gid == 12 && before.configured == 1 && before.max == 12 &&
-        before.remaining == 12 && before.refill_per_100_ticks == 0 &&
-        before.mode == BUDGET_FAIL && before.n_allowed == 0 &&
-        before.n_blocked == 0 && before.n_refused == 0,
+  check(before.gid == 12 && before.configured == 1 && before.max == 40 &&
+          before.remaining == 36 && before.refill_per_100_ticks == 0 &&
+          before.mode == BUDGET_FAIL && before.n_allowed == 1 &&
+          before.n_blocked == 0 && before.n_refused == 0,
         "initial configured values and zero counters");
 
   now = before;
   check(budgetstat(-1, &now) == -1 && budgetstat(NGROUP, &now) == -1 &&
-        memcmp(&before, &now, sizeof(now)) == 0,
+          memcmp(&before, &now, sizeof(now)) == 0,
         "invalid gids do not copy out");
   check(budgetstat(12, 0) == -1 &&
-        budgetstat(12, (struct budget_snapshot *)(uint64)-1) == -1 &&
-        budgetstat(12, (struct budget_snapshot *)(uint64)race) == -1,
+          budgetstat(12, (struct budget_snapshot *)(uint64)-1) == -1 &&
+          budgetstat(12, (struct budget_snapshot *)(uint64)race) == -1,
         "invalid and read-only user buffers rejected");
   char *end = sbrk(0);
   check(end != SBRK_ERROR &&
-        budgetstat(12, (struct budget_snapshot *)(end - 1)) == -1,
+          budgetstat(12, (struct budget_snapshot *)(end - 1)) == -1,
         "buffer extending past process size rejected");
-  check(budgetstat(12, &now) == 0 &&
-        memcmp(&before, &now, sizeof(now)) == 0,
+  check(budgetstat(12, &now) == 0 && memcmp(&before, &now, sizeof(now)) == 0,
         "invalid requests did not mutate group state");
   check(budgetstat(14, &now) == 0 && now.gid == 14 && !now.configured &&
-        now.remaining == 0 && now.max == 0 && now.n_allowed == 0 &&
-        now.n_blocked == 0 && now.n_refused == 0,
+          now.remaining == 0 && now.max == 0 && now.n_allowed == 0 &&
+          now.n_blocked == 0 && now.n_refused == 0,
         "unconfigured group has safe zero snapshot");
 
   char *paths[] = {"stat0", "stat1", "stat2", "stat3", "stat4", "stat5"};
   for (int i = 0; i < 6; i++)
     close(create(paths[i]));
+  check(budgetstat(12, &now) == 0 && now.remaining == 12 && now.n_allowed == 7,
+        "six fixture creations charged once");
   int ready[2], start[2];
   check(pipe(ready) == 0 && pipe(start) == 0, "barrier pipes");
   for (int i = 0; i < 6; i++) {
@@ -150,8 +153,7 @@ race(void)
   close(start[0]);
   for (int i = 0; i < 6; i++) {
     char token;
-    check(read(ready[0], &token, 1) == 1 && token == 'r',
-          "all writers ready");
+    check(read(ready[0], &token, 1) == 1 && token == 'r', "all writers ready");
   }
   close(ready[0]);
   check(write(start[1], "xxxxxx", 6) == 6, "release writers");
@@ -159,11 +161,11 @@ race(void)
 
   for (int i = 0; i < 50; i++) {
     check(budgetstat(12, &now) == 0, "concurrent snapshot");
-    check(now.gid == 12 && now.configured == 1 && now.max == 12 &&
-          now.refill_per_100_ticks == 0 && now.mode == BUDGET_FAIL &&
-          now.remaining <= now.max && now.n_allowed <= 4 &&
-          now.n_refused <= 6 && now.n_blocked == 0 &&
-          now.remaining + 3 * now.n_allowed == 12,
+    check(now.gid == 12 && now.configured == 1 && now.max == 40 &&
+            now.refill_per_100_ticks == 0 && now.mode == BUDGET_FAIL &&
+            now.remaining <= now.max && now.n_allowed >= 7 &&
+            now.n_allowed <= 11 && now.n_refused <= 6 && now.n_blocked == 0 &&
+            now.remaining + 3 * (now.n_allowed - 7) == 12,
           "each snapshot is coherent during racing deductions");
     if (i % 10 == 0)
       check(pause(1) == 0, "yield to writers");
@@ -179,7 +181,7 @@ race(void)
   }
   check(allowed == 4 && refused == 2, "only four writes admitted");
   check(budgetstat(12, &now) == 0 && now.remaining == 0 &&
-        now.n_allowed == 4 && now.n_blocked == 0 && now.n_refused == 2,
+          now.n_allowed == 11 && now.n_blocked == 0 && now.n_refused == 2,
         "final counters count charge outcomes once");
   int written = 0;
   for (int i = 0; i < 6; i++) {
@@ -202,20 +204,19 @@ block(void)
   int fd = create("statb");
   check(write(fd, "a", 1) == 1, "first charge");
   struct budget_snapshot now, later;
-  check(budgetstat(13, &now) == 0 && now.gid == 13 &&
-        now.configured == 1 && now.max == 3 && now.remaining == 0 &&
-        now.refill_per_100_ticks == 3 && now.mode == BUDGET_BLOCK &&
-        now.n_allowed == 1 && now.n_blocked == 0 && now.n_refused == 0,
+  check(budgetstat(13, &now) == 0 && now.gid == 13 && now.configured == 1 &&
+          now.max == 11 && now.remaining == 0 &&
+          now.refill_per_100_ticks == 3 && now.mode == BUDGET_BLOCK &&
+          now.n_allowed == 3 && now.n_blocked == 0 && now.n_refused == 0,
         "first charge snapshot");
   check(write(fd, "b", 1) == 1, "blocked charge eventually admitted");
-  check(budgetstat(13, &now) == 0 && now.n_allowed == 2 &&
-        now.n_blocked >= 1 && now.n_refused == 0 && now.remaining == 0,
+  check(budgetstat(13, &now) == 0 && now.n_allowed == 4 && now.n_blocked >= 1 &&
+          now.n_refused == 0 && now.remaining == 0,
         "wait episodes counted; admission counted once");
   check(pause(105) == 0, "pass refill boundary");
   check(budgetstat(13, &later) == 0 && later.remaining == now.remaining &&
-        later.n_allowed == now.n_allowed &&
-        later.n_blocked == now.n_blocked &&
-        later.n_refused == now.n_refused,
+          later.n_allowed == now.n_allowed &&
+          later.n_blocked == now.n_blocked && later.n_refused == now.n_refused,
         "snapshot does not apply lazy refill or alter counters");
   close(fd);
   printf("budgetstat: PASS block\n");

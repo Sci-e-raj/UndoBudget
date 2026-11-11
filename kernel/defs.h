@@ -24,7 +24,7 @@ void            consoleintr(int);
 void            consputc(int);
 
 // exec.c
-int             kexec(char*, char**);
+int             kexec(char*, char**, int);
 
 // file.c
 struct file*    filealloc(void);

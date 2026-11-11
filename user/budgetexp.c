@@ -4,8 +4,9 @@
 #include "user/user.h"
 
 // Measurement workload. Run each scenario on a fresh scratch filesystem.
-// Shell configuration: fail=2/48/0, block=3/12/12, shared=4/24/0,
-// race=5/48/0, independent=6/12/0 and 7/24/0 (all costs are unlink=12).
+// Budgets include exec=4 and 4 units per fixture before measured unlinks.
+// Shell: fail=2/76/0, block=3/32/12, shared=4/40/0,
+// race=5/84/0, independent=6/36/0 and 7/44/0.
 
 static char *scenario;
 
@@ -48,8 +49,8 @@ struct observation {
 };
 
 static void
-sample(struct observation *o, char *event, int gid, int attempts,
-       int completed, int result)
+sample(struct observation *o, char *event, int gid, int attempts, int completed,
+       int result)
 {
   o->event = event;
   o->tick = (uint)uptime();
@@ -63,19 +64,32 @@ static void
 emit_record(struct observation *o, int gid)
 {
   char line[512], *p = line;
-  word(&p, "UBEXP case="); word(&p, scenario);
-  word(&p, " event="); word(&p, o->event);
-  word(&p, " tick="); number(&p, o->tick);
-  word(&p, " gid="); number(&p, gid);
-  word(&p, " pid="); number(&p, getpid());
-  word(&p, " attempts="); number(&p, o->attempts);
-  word(&p, " completed="); number(&p, o->completed);
-  word(&p, " result="); number(&p, o->result); // 0=refused, 1=success, 2=sample
-  word(&p, " remaining="); number(&p, o->state.remaining);
-  word(&p, " max="); number(&p, o->state.max);
-  word(&p, " allowed="); number(&p, o->state.n_allowed);
-  word(&p, " blocked="); number(&p, o->state.n_blocked);
-  word(&p, " refused="); number(&p, o->state.n_refused);
+  word(&p, "UBEXP case=");
+  word(&p, scenario);
+  word(&p, " event=");
+  word(&p, o->event);
+  word(&p, " tick=");
+  number(&p, o->tick);
+  word(&p, " gid=");
+  number(&p, gid);
+  word(&p, " pid=");
+  number(&p, getpid());
+  word(&p, " attempts=");
+  number(&p, o->attempts);
+  word(&p, " completed=");
+  number(&p, o->completed);
+  word(&p, " result=");
+  number(&p, o->result); // 0=refused, 1=success, 2=sample
+  word(&p, " remaining=");
+  number(&p, o->state.remaining);
+  word(&p, " max=");
+  number(&p, o->state.max);
+  word(&p, " allowed=");
+  number(&p, o->state.n_allowed);
+  word(&p, " blocked=");
+  number(&p, o->state.n_blocked);
+  word(&p, " refused=");
+  number(&p, o->state.n_refused);
   *p++ = '\n';
   check(write(1, line, p - line) == p - line, "write measurement");
 }
@@ -113,23 +127,24 @@ setup(int gid, int maximum, int refill, int mode)
   check(setgroup(gid) == 0 && setgroup(0) == -1,
         "shell selected immutable workload group");
   check(budgetstat(gid, &state) == 0 && state.configured &&
-        state.max == maximum && state.remaining == maximum &&
-        state.refill_per_100_ticks == refill && state.mode == mode &&
-        state.n_allowed == 0 && state.n_blocked == 0 &&
-        state.n_refused == 0, "fresh configured budget");
+          state.max == maximum && state.remaining == maximum - 4 &&
+          state.refill_per_100_ticks == refill && state.mode == mode &&
+          state.n_allowed == 1 && state.n_blocked == 0 && state.n_refused == 0,
+        "only user exec charged before workload");
 }
 
 static void
 fail_plateau(void)
 {
   char *paths[] = {"ef0", "ef1", "ef2", "ef3", "ef4", "ef5"};
-  setup(2, 48, 0, BUDGET_FAIL);
-  for (int i = 0; i < 6; i++) fixture(paths[i]);
+  setup(2, 76, 0, BUDGET_FAIL);
+  for (int i = 0; i < 6; i++)
+    fixture(paths[i]);
   emit("start", 2, 0, 0, 2);
   for (int i = 0; i < 6; i++) {
     int rc = unlink(paths[i]);
-    check((i < 4 ? rc == 0 && !exists(paths[i]) :
-                   rc == -1 && exists(paths[i])), "FAIL plateau result");
+    check((i < 4 ? rc == 0 && !exists(paths[i]) : rc == -1 && exists(paths[i])),
+          "FAIL plateau result");
     emit("attempt", 2, i + 1, i < 4 ? i + 1 : 4, rc == 0);
     check(pause(10) == 0, "pace attempts");
   }
@@ -141,8 +156,9 @@ static void
 block_staircase(void)
 {
   char *paths[] = {"eb0", "eb1", "eb2", "eb3"};
-  setup(3, 12, 12, BUDGET_BLOCK);
-  for (int i = 0; i < 4; i++) fixture(paths[i]);
+  setup(3, 32, 12, BUDGET_BLOCK);
+  for (int i = 0; i < 4; i++)
+    fixture(paths[i]);
   int pid = fork();
   check(pid >= 0, "fork BLOCK worker");
   if (pid == 0) {
@@ -170,7 +186,8 @@ block_staircase(void)
   }
   int status = -1;
   check(wait(&status) == pid && status == 0, "BLOCK worker completed");
-  for (int i = 0; i < 4; i++) check(!exists(paths[i]), "BLOCK target removed");
+  for (int i = 0; i < 4; i++)
+    check(!exists(paths[i]), "BLOCK target removed");
   struct budget_snapshot state;
   check(budgetstat(3, &state) == 0, "final BLOCK snapshot");
   check(state.n_blocked >= 3 && state.n_refused == 0,
@@ -182,8 +199,9 @@ static void
 shared_fork(void)
 {
   char *paths[] = {"es0", "es1", "es2"};
-  setup(4, 24, 0, BUDGET_FAIL);
-  for (int i = 0; i < 3; i++) fixture(paths[i]);
+  setup(4, 40, 0, BUDGET_FAIL);
+  for (int i = 0; i < 3; i++)
+    fixture(paths[i]);
   emit("start", 4, 0, 0, 2);
   int pid = fork();
   check(pid >= 0, "fork shared spender");
@@ -206,23 +224,28 @@ static void
 concurrent(void)
 {
   char *paths[] = {"ec0", "ec1", "ec2", "ec3", "ec4", "ec5", "ec6", "ec7"};
-  setup(5, 48, 0, BUDGET_FAIL);
-  for (int i = 0; i < 8; i++) fixture(paths[i]);
+  setup(5, 84, 0, BUDGET_FAIL);
+  for (int i = 0; i < 8; i++)
+    fixture(paths[i]);
   int ready[2], release[2];
   check(pipe(ready) == 0 && pipe(release) == 0, "barrier pipes");
   for (int i = 0; i < 8; i++) {
     int pid = fork();
     check(pid >= 0, "fork contender");
     if (pid == 0) {
-      close(ready[0]); close(release[1]);
-      if (write(ready[1], "r", 1) != 1) exit(2);
+      close(ready[0]);
+      close(release[1]);
+      if (write(ready[1], "r", 1) != 1)
+        exit(2);
       char token;
-      if (read(release[0], &token, 1) != 1) exit(2);
+      if (read(release[0], &token, 1) != 1)
+        exit(2);
       int rc = unlink(paths[i]);
       exit(rc == 0 ? 0 : rc == -1 ? 1 : 2);
     }
   }
-  close(ready[1]); close(release[0]);
+  close(ready[1]);
+  close(release[0]);
   for (int i = 0; i < 8; i++) {
     char token;
     check(read(ready[0], &token, 1) == 1 && token == 'r',
@@ -242,11 +265,13 @@ concurrent(void)
     emit("sample", 5, completed + refused, completed, 2);
   }
   int removed = 0;
-  for (int i = 0; i < 8; i++) removed += !exists(paths[i]);
+  for (int i = 0; i < 8; i++)
+    removed += !exists(paths[i]);
   struct budget_snapshot state;
   check(budgetstat(5, &state) == 0 && completed == 4 && refused == 4 &&
-        removed == 4 && state.remaining == 0 && state.n_allowed == 4 &&
-        state.n_refused == 4, "atomic shared balance and surviving targets");
+          removed == 4 && state.remaining == 0 && state.n_allowed == 13 &&
+          state.n_refused == 4,
+        "atomic shared balance and surviving targets");
   emit("end", 5, 8, 4, 2);
 }
 
@@ -259,13 +284,17 @@ independent(int gid)
   char *own = gid == 6 ? "ei6ready" : "ei7ready";
   char *other = gid == 6 ? "ei7ready" : "ei6ready";
   int expected = gid == 6 ? 1 : 2;
-  setup(gid, gid == 6 ? 12 : 24, 0, BUDGET_FAIL);
-  for (int i = 0; i < 3; i++) fixture(paths[i]);
+  setup(gid, gid == 6 ? 36 : 44, 0, BUDGET_FAIL);
+  for (int i = 0; i < 3; i++)
+    fixture(paths[i]);
   fixture(own);
   emit("ready", gid, 0, 0, 2);
   int seen = 0;
   for (int i = 0; i < 200; i++) {
-    if (exists(other)) { seen = 1; break; }
+    if (exists(other)) {
+      seen = 1;
+      break;
+    }
     check(pause(1) == 0, "wait for peer group");
   }
   check(seen, "peer reached barrier");
@@ -275,8 +304,8 @@ independent(int gid)
   sample(&points[0], "start", gid, 0, 0, 2);
   for (int i = 0; i < 3; i++) {
     int rc = unlink(paths[i]);
-    check((i < expected ? rc == 0 && !exists(paths[i]) :
-                          rc == -1 && exists(paths[i])),
+    check((i < expected ? rc == 0 && !exists(paths[i])
+                        : rc == -1 && exists(paths[i])),
           "independent balance and target state");
     sample(&points[i + 1], "attempt", gid, i + 1,
            i < expected ? i + 1 : expected, rc == 0);
@@ -286,7 +315,10 @@ independent(int gid)
   if (gid == 7) {
     seen = 0;
     for (int i = 0; i < 200; i++) {
-      if (exists("ei6done")) { seen = 1; break; }
+      if (exists("ei6done")) {
+        seen = 1;
+        break;
+      }
       check(pause(1) == 0, "wait for group 6 report");
     }
     check(seen, "group 6 reported completion");
@@ -303,13 +335,18 @@ main(int argc, char **argv)
   scenario = "argument";
   check(argc >= 2, "usage: budgetexperiment MODE [GID]");
   scenario = argv[1];
-  if (argc == 2 && strcmp(scenario, "fail") == 0) fail_plateau();
-  else if (argc == 2 && strcmp(scenario, "block") == 0) block_staircase();
-  else if (argc == 2 && strcmp(scenario, "shared") == 0) shared_fork();
-  else if (argc == 2 && strcmp(scenario, "race") == 0) concurrent();
+  if (argc == 2 && strcmp(scenario, "fail") == 0)
+    fail_plateau();
+  else if (argc == 2 && strcmp(scenario, "block") == 0)
+    block_staircase();
+  else if (argc == 2 && strcmp(scenario, "shared") == 0)
+    shared_fork();
+  else if (argc == 2 && strcmp(scenario, "race") == 0)
+    concurrent();
   else if (argc == 3 && strcmp(scenario, "independent") == 0 &&
            (strcmp(argv[2], "6") == 0 || strcmp(argv[2], "7") == 0))
     independent(argv[2][0] - '0');
-  else check(0, "unknown mode or group");
+  else
+    check(0, "unknown mode or group");
   exit(0);
 }

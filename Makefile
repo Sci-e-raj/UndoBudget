@@ -165,6 +165,9 @@ UPROGS=\
 	$U/_budgetstat\
 	$U/_budgetexp\
 	$U/_agentop\
+	$U/_fsbudget\
+	$U/_execbudget\
+	$U/_consolebudget\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

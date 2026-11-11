@@ -32,6 +32,7 @@ class Session:
         self.cpus = cpus
         self.records = records
         self.serial = 0
+        self.selected_gid = 1
 
     def shell(self, command, expected=None):
         # Fixed test setup commands only. Agent JSON never reaches this path.
@@ -41,7 +42,10 @@ class Session:
             self.bridge._transport.write((command + "\n").encode("ascii"))
             output = b""
             while SHELL_PROMPT.search(output) is None:
-                output += self.bridge._read(deadline).replace(b"\r", b"")
+                try:
+                    output += self.bridge._read(deadline).replace(b"\r", b"")
+                except Exception as exc:
+                    raise AssertionError(f"{command!r}: {exc}; serial={output[-1000:]!r}") from exc
                 if len(output) > 16384:
                     raise AssertionError("shell setup output exceeded limit")
         text = output.decode("utf-8", "replace")
@@ -49,6 +53,8 @@ class Session:
             raise AssertionError(f"{command!r} did not report {expected!r}: {text!r}")
         if "panic:" in text or "FAIL" in text or "failed" in text:
             raise AssertionError(f"shell setup failed: {text!r}")
+        if command.startswith("group "):
+            self.selected_gid = int(command.split()[1])
         return text
 
     def request(self, scenario, tool, arguments, gid, timeout=20):
@@ -58,7 +64,18 @@ class Session:
                              separators=(",", ":"))
         validated = validate_request(payload)
         assert validated["ok"], validated
-        result = execute_request(payload, self.bridge, timeout=timeout)
+        # Query snapshots from the default group so the act of launching a
+        # read-only helper does not spend the group being observed.
+        previous_gid = self.selected_gid
+        if tool == "get_budget_status" and previous_gid != 1:
+            self.shell("group 1", "group: using 1")
+        try:
+            executing_gid = self.selected_gid
+            result = execute_request(payload, self.bridge, timeout=timeout)
+        finally:
+            if self.selected_gid != previous_gid:
+                self.shell(f"group {previous_gid}",
+                           f"group: using {previous_gid}")
 
         if tool == "get_budget_status":
             remaining = (result["data"]["remaining"] if result["status"] == "ok"
@@ -97,6 +114,7 @@ class Session:
 
         self.records.append({
             "scenario": scenario, "cpus": self.cpus, "gid": gid,
+            "executing_gid": executing_gid,
             "original_json": payload,
             "validated_arguments": validated["request"]["arguments"],
             "guest_operation": operation,
@@ -113,7 +131,15 @@ class Session:
         return result["data"]
 
     def exists(self, scenario, path, gid):
-        result = self.request(scenario, "read_file", {"path": path}, gid)
+        previous_gid = self.selected_gid
+        if previous_gid != 1:
+            self.shell("group 1", "group: using 1")
+        try:
+            result = self.request(scenario, "read_file", {"path": path}, gid)
+        finally:
+            if self.selected_gid != previous_gid:
+                self.shell(f"group {previous_gid}",
+                           f"group: using {previous_gid}")
         assert result["verified_guest"], result
         if result["status"] == "ok":
             return True
@@ -129,12 +155,12 @@ class Session:
         if allowed:
             assert result["status"] == "ok" and result["verified_guest"], result
             assert result["data"] == {"deleted": True}
-            assert after["n_allowed"] == before["n_allowed"] + 1
+            assert after["n_allowed"] == before["n_allowed"] + 2
             assert not self.exists(scenario + ":absent", path, gid)
         else:
             assert result["status"] == "error" and result["verified_guest"], result
             assert result["error"]["code"] == "unlink_failed_budget_possible"
-            assert after["n_allowed"] == before["n_allowed"]
+            assert after["n_allowed"] == before["n_allowed"] + 1
             assert after["n_refused"] == before["n_refused"] + 1
             assert self.exists(scenario + ":survives", path, gid)
         assert after["configured"] == 1 and 0 <= after["remaining"] <= after["max"]
@@ -149,11 +175,11 @@ def exercise(bridge, cpus, records):
     for path in fixtures:
         session.shell(f"echo x > {path}")
     for gid, maximum, refill, mode in (
-            (2, 2 * UNLINK_COST, 0, "fail"),
-            (3, UNLINK_COST, 0, "fail"),
-            (4, UNLINK_COST, UNLINK_COST, "block"),
-            (5, UNLINK_COST, 0, "fail"),
-            (6, UNLINK_COST, 0, "fail")):
+            (2, 2 * UNLINK_COST + 3 * 4, 0, "fail"),
+            (3, UNLINK_COST + 4 * 4, 0, "fail"),
+            (4, UNLINK_COST + 4, UNLINK_COST, "block"),
+            (5, UNLINK_COST + 2 * 4, 0, "fail"),
+            (6, UNLINK_COST + 4, 0, "fail")):
         session.shell(f"budget {gid} {maximum} {refill} {mode}",
                       f"budget: group {gid} configured")
         state = session.snapshot(f"configured-{gid}", gid)
@@ -162,23 +188,23 @@ def exercise(bridge, cpus, records):
 
     session.shell("group 2", "group: using 2")
     _, before, after = session.delete("successful-delete", "as0", 2, True)
-    assert before["remaining"] == 2 * UNLINK_COST
-    assert after["remaining"] == UNLINK_COST
+    assert before["remaining"] == 2 * UNLINK_COST + 3 * 4
+    assert after["remaining"] == UNLINK_COST + 2 * 4
     session.delete("fail-last-allowed", "af0", 2, True)
     _, before, after = session.delete("fail-exhausted", "af1", 2, False)
-    assert before["remaining"] == after["remaining"] == 0
+    assert before["remaining"] == 4 and after["remaining"] == 0
 
     session.shell("group 3", "group: using 3")
     before = session.snapshot("fork-before", 3)
-    session.shell("budgettest shared", "budgettest: PASS shared")
+    session.shell("relay budgettest shared", "budgettest: PASS shared")
     after = session.snapshot("fork-after", 3)
-    assert after["n_allowed"] == before["n_allowed"] + 1
+    assert after["n_allowed"] == before["n_allowed"] + 4
     assert after["n_refused"] == before["n_refused"] + 1
-    assert after["remaining"] == 0
+    assert after["remaining"] == 4
     assert not session.exists("fork-child-removed", "bsc", 3)
     assert session.exists("fork-parent-survived", "bsp", 3)
     _, before, after = session.delete("fork-shared-budget", "ak0", 3, False)
-    assert before["remaining"] == after["remaining"] == 0
+    assert before["remaining"] == 4 and after["remaining"] == 0
 
     session.shell("group 4", "group: using 4")
     session.delete("block-exhaust", "ab0", 4, True)
@@ -189,12 +215,12 @@ def exercise(bridge, cpus, records):
     session.shell("group 5", "group: using 5")
     session.delete("independent-first", "ai0", 5, True)
     first = session.snapshot("first-exhausted", 5)
-    assert first["remaining"] == 0
+    assert first["remaining"] == 4
     session.shell("group 6", "group: using 6")
     second = session.snapshot("second-untouched", 6)
-    assert second["remaining"] == UNLINK_COST and second["n_allowed"] == 0
+    assert second["remaining"] == UNLINK_COST + 4 and second["n_allowed"] == 0
     session.delete("independent-second", "ai1", 6, True)
-    assert session.snapshot("first-still-exhausted", 5)["remaining"] == 0
+    assert session.snapshot("first-still-exhausted", 5)["remaining"] == 4
     session.shell("group 5", "group: using 5")
     session.delete("independent-refusal", "ai2", 5, False)
     assert session.snapshot("second-still-independent", 6)["n_refused"] == 0
@@ -202,7 +228,7 @@ def exercise(bridge, cpus, records):
 
 def main():
     source = (ROOT / "kernel/sysfile.c").read_text()
-    assert re.search(r"^#define UNLINK_COST 12$", source, re.MULTILINE), \
+    assert re.search(r"^#define\s+UNLINK_COST\s+12$", source, re.MULTILINE), \
         "kernel unlink cost differs from the approved 12-point policy"
     records = []
     cpus_to_test = [int(value) for value in sys.argv[1:]] or [1, 3]
