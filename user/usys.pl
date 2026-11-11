@@ -46,3 +46,4 @@ entry("sync");
 entry("hello");
 entry("setgroup");
 entry("setbudget");
+entry("budgetstat");

@@ -144,8 +144,29 @@ filewrite(struct file *f, uint64 addr, int n)
   } else if (f->type == FD_DEVICE) {
     if (f->major < 0 || f->major >= NDEV || !devsw[f->major].write)
       return -1;
+    if (f->major == CONSOLE && n > 0) {
+      long cost = 2 + ((long)n + 127) / 128;
+      if (group_charge(cost) < 0)
+        return -1;
+    }
     ret = devsw[f->major].write(1, addr, n);
   } else if (f->type == FD_INODE) {
+    if (n > 0) {
+      // Creator ownership is immutable. Read it with the inode locked, then
+      // release that lock before taking the group's spinlock to charge once
+      // for this syscall, even if filewrite splits it into transactions.
+      ilock(f->ip);
+      int regular = f->ip->type == T_FILE;
+      uint creator_gid = f->ip->creator_gid;
+      iunlock(f->ip);
+      if (regular) {
+        long units = ((long)n + BSIZE - 1) / BSIZE;
+        long cost = creator_gid == myproc()->gid ? 2 + units : 6 + 2 * units;
+        if (group_charge(cost) < 0)
+          return -1;
+      }
+    }
+
     // write a few blocks at a time to avoid exceeding
     // the maximum log transaction size, including
     // i-node, indirect block, allocation blocks,

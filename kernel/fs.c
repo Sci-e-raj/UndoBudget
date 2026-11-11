@@ -203,6 +203,11 @@ ialloc(uint dev, short type)
   int inum;
   struct buf *bp;
   struct dinode *dip;
+  struct proc *p = myproc();
+
+  // The only runtime caller is create(), in the creating process's context.
+  if (p == 0 || p->gid < 0 || p->gid >= NGROUP)
+    panic("ialloc: invalid creator gid");
 
   for (inum = 1; inum < sb.ninodes; inum++) {
     bp = bread(dev, IBLOCK(inum, sb));
@@ -210,6 +215,7 @@ ialloc(uint dev, short type)
     if (dip->type == 0) { // a free inode
       memset(dip, 0, sizeof(*dip));
       dip->type = type;
+      dip->creator_gid = p->gid;
       log_write(bp); // mark it allocated on the disk
       brelse(bp);
       return iget(dev, inum);
@@ -237,6 +243,7 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
+  dip->creator_gid = ip->creator_gid;
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -310,6 +317,7 @@ ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
+    ip->creator_gid = dip->creator_gid;
     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
     brelse(bp);
     ip->valid = 1;

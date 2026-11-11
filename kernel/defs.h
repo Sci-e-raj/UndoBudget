@@ -24,7 +24,7 @@ void            consoleintr(int);
 void            consputc(int);
 
 // exec.c
-int             kexec(char*, char**);
+int             kexec(char*, char**, int);
 
 // file.c
 struct file*    filealloc(void);
@@ -60,6 +60,10 @@ void            ireclaim(int);
 void            groupinit(void);
 int             ksetgroup(int);
 int             ksetbudget(int, int, int, int);
+int             group_charge(long);
+int             group_try_charge(long);
+int             group_wait_affordable(long);
+int             kbudgetstat(int, uint64);
 
 // kalloc.c
 void*           kalloc(void);

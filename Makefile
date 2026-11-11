@@ -154,6 +154,20 @@ UPROGS=\
 	$U/_sync\
 	$U/_hello\
 	$U/_grouptest\
+	$U/_groupauth\
+	$U/_unlinkbudget\
+	$U/_budgettest\
+	$U/_creatorprobe\
+	$U/_writebudget\
+	$U/_refillbudget\
+	$U/_blockrefill\
+	$U/_blockstress\
+	$U/_budgetstat\
+	$U/_budgetexp\
+	$U/_agentop\
+	$U/_fsbudget\
+	$U/_execbudget\
+	$U/_consolebudget\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)

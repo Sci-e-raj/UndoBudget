@@ -1,5 +1,6 @@
 *~
 _*
+!/undobudget_agent/__init__.py
 *.o
 *.d
 *.asm

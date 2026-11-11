@@ -85,7 +85,8 @@ main(int argc, char *argv[])
     exit(1);
   }
 
-  assert((BSIZE % sizeof(struct dinode)) == 0);
+  // Fifteen 68-byte inodes fit in a block; four trailing bytes are unused.
+  assert(IPB == 15 && IPB * sizeof(struct dinode) <= BSIZE);
   assert((BSIZE % sizeof(struct dirent)) == 0);
 
   fsfd = open(argv[1], O_RDWR | O_CREAT | O_TRUNC, 0666);
@@ -233,6 +234,7 @@ ialloc(ushort type)
   din.type = xshort(type);
   din.nlink = xshort(1);
   din.size = xint(0);
+  din.creator_gid = xint(0); // mkfs creates the trusted boot files.
   winode(inum, &din);
   return inum;
 }

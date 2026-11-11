@@ -1,6 +1,7 @@
 #define SBRK_ERROR ((char *)-1)
 
 struct stat;
+struct budget_snapshot;
 
 // system calls
 int fork(void);
@@ -28,6 +29,7 @@ int sync(void);
 int hello(int, int, int, int);
 int setgroup(int gid);
 int setbudget(int gid, int max, int refill_per_100_ticks, int mode);
+int budgetstat(int gid, struct budget_snapshot *out);
 
 // ulib.c
 int stat(const char *, struct stat *);

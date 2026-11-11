@@ -21,7 +21,8 @@ struct superblock {
   uint bmapstart;  // Block number of first free map block
 };
 
-#define FSMAGIC 0x10203040
+// Bumped for the creator_gid inode layout; old images must not be mounted.
+#define FSMAGIC 0x10203041
 
 #define NDIRECT   12
 #define NINDIRECT (BSIZE / sizeof(uint))
@@ -35,8 +36,11 @@ struct dinode {
   short minor;             // Minor device number (T_DEVICE only)
   short nlink;             // Number of links to inode in file system
   uint size;               // Size of file (bytes)
+  uint creator_gid;        // Group that first allocated this inode
   uint addrs[NDIRECT + 1]; // Data block addresses
 };
+
+_Static_assert(sizeof(struct dinode) == 68, "disk inode layout");
 
 // Inodes per block.
 #define IPB (BSIZE / sizeof(struct dinode))

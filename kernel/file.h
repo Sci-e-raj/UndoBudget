@@ -26,6 +26,7 @@ struct inode {
   short minor;
   short nlink;
   uint size;
+  uint creator_gid;
   uint addrs[NDIRECT + 1];
 };
 
